@@ -1,0 +1,10 @@
+*.ipynb_checkpoints
+.idea
+*.pyc
+__pycache__
+
+outputs
+
+out
+auxil
+_minted-main
