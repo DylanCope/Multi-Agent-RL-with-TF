@@ -39,6 +39,7 @@ from tf_agents.agents.tf_agent import LossInfo
 from tf_agents.environments.py_environment import PyEnvironment
 from tf_agents.environments.tf_py_environment import TFPyEnvironment
 from tf_agents.networks.q_rnn_network import QRnnNetwork
+from tf_agents.networks.q_network import QNetwork
 from tf_agents.replay_buffers.tf_uniform_replay_buffer import TFUniformReplayBuffer
 from tf_agents.specs import TensorSpec
 from tf_agents.trajectories import trajectory
@@ -56,7 +57,7 @@ print('Output Directory:', OUTPUTS_DIR)
      [PhysicalDevice(name='/physical_device:CPU:0', device_type='CPU')] 
     
     
-    Output Directory: ./outputs/15918169468946548
+    Output Directory: ./outputs/15918954278264744
     
 
 
@@ -121,14 +122,22 @@ class IMAgent(DqnAgent):
         self.train = common.function(self.train)
 
     def _build_q_net(self):
-        qrnn = QRnnNetwork(input_tensor_spec=self._observation_spec,
-                           action_spec=self._action_spec,
-                           name=f'{self._name}QRNN')
+#         qrnn = QRnnNetwork(input_tensor_spec=self._observation_spec,
+#                            action_spec=self._action_spec,
+#                            name=f'{self._name}QRNN')
 
-        qrnn.create_variables()
-        qrnn.summary()
+#         qrnn.create_variables()
+#         qrnn.summary()
 
-        return qrnn
+#         return qrnn
+        fc_layer_params = (100,)
+
+        q_net = QNetwork(
+            self._observation_spec,
+            self._action_spec,
+            fc_layer_params=fc_layer_params)
+        
+        return q_net
 
     def reset(self):
         self._policy_state = self.policy.get_initial_state(
@@ -372,44 +381,6 @@ player_2 = IMAgent(
 )
 ```
 
-    Model: "Player1QRNN"
-    _________________________________________________________________
-    Layer (type)                 Output Shape              Param #   
-    =================================================================
-    EncodingNetwork (EncodingNet multiple                  3790      
-    _________________________________________________________________
-    dynamic_unroll_164 (DynamicU multiple                  12960     
-    _________________________________________________________________
-    Player1QRNN/dense (Dense)    multiple                  3075      
-    _________________________________________________________________
-    Player1QRNN/dense (Dense)    multiple                  3040      
-    _________________________________________________________________
-    num_action_project/dense (De multiple                  369       
-    =================================================================
-    Total params: 23,234
-    Trainable params: 23,234
-    Non-trainable params: 0
-    _________________________________________________________________
-    Model: "Player2QRNN"
-    _________________________________________________________________
-    Layer (type)                 Output Shape              Param #   
-    =================================================================
-    EncodingNetwork (EncodingNet multiple                  3790      
-    _________________________________________________________________
-    dynamic_unroll_166 (DynamicU multiple                  12960     
-    _________________________________________________________________
-    Player2QRNN/dense (Dense)    multiple                  3075      
-    _________________________________________________________________
-    Player2QRNN/dense (Dense)    multiple                  3040      
-    _________________________________________________________________
-    num_action_project/dense (De multiple                  369       
-    =================================================================
-    Total params: 23,234
-    Trainable params: 23,234
-    Non-trainable params: 0
-    _________________________________________________________________
-    
-
 
 ```python
 ts = tf_ttt_env.reset()
@@ -448,23 +419,15 @@ while not ts.is_last():
     
           | X |  
         - + - + -
-        O |   |  
+          |   | O
         - + - + -
           |   |  
         
-    Player: Player1, Reward: 0.0
+    Player: Player1, Reward: -2.0
     
           | X |  
         - + - + -
-        O |   | X
-        - + - + -
-          |   |  
-        
-    Player: Player2, Reward: -2.0
-    
-          | X |  
-        - + - + -
-        O |   | X
+          |   | O
         - + - + -
           |   |  
         
@@ -484,14 +447,11 @@ tf_ttt_env.step({'position': tf.convert_to_tensor([8]),
                  'value': 2})
 
 ts = tf_ttt_env.current_time_step()
-print(ts)
+print('Step type:', ts.step_type)
 print_tic_tac_toe(ts.observation.numpy())
 ```
 
-    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
-    array([[[2, 0, 0],
-            [0, 2, 0],
-            [0, 0, 2]]])>)
+    Step type: tf.Tensor([2], shape=(1,), dtype=int32)
     
         O |   |  
         - + - + -
@@ -503,31 +463,25 @@ print_tic_tac_toe(ts.observation.numpy())
 
 
 ```python
-player_1._augment_time_step(ts)
+player_1._augment_time_step(ts).reward
 ```
 
 
 
 
-    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
-    array([[[2, 0, 0],
-            [0, 2, 0],
-            [0, 0, 2]]])>)
+    <tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>
 
 
 
 
 ```python
-player_2._augment_time_step(ts)
+player_2._augment_time_step(ts).reward
 ```
 
 
 
 
-    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
-    array([[[2, 0, 0],
-            [0, 2, 0],
-            [0, 0, 2]]])>)
+    <tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>
 
 
 
@@ -545,14 +499,11 @@ tf_ttt_env.step({'position': tf.convert_to_tensor([8]),
                  'value': 1})
 
 ts = tf_ttt_env.current_time_step()
-print(ts)
+print('Step type:', ts.step_type)
 print_tic_tac_toe(ts.observation.numpy())
 ```
 
-    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
-    array([[[1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1]]])>)
+    Step type: tf.Tensor([2], shape=(1,), dtype=int32)
     
         X |   |  
         - + - + -
@@ -564,31 +515,25 @@ print_tic_tac_toe(ts.observation.numpy())
 
 
 ```python
-player_1._augment_time_step(ts)
+player_1._augment_time_step(ts).reward
 ```
 
 
 
 
-    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
-    array([[[1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1]]])>)
+    <tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>
 
 
 
 
 ```python
-player_2._augment_time_step(ts)
+player_2._augment_time_step(ts).reward
 ```
 
 
 
 
-    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
-    array([[[1, 0, 0],
-            [0, 1, 0],
-            [0, 0, 1]]])>)
+    <tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>
 
 
 
@@ -621,7 +566,7 @@ player_1._replay_buffer.num_frames()
 
 
 
-    <tf.Tensor: shape=(), dtype=int64, numpy=3>
+    <tf.Tensor: shape=(), dtype=int64, numpy=2>
 
 
 
@@ -634,39 +579,39 @@ print(info)
 ```
 
     Trajectory(step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
+    array([[0, 1],
+           [0, 1]])>, observation=<tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
+    array([[[[0, 0, 0],
+             [0, 0, 0],
+             [0, 0, 0]],
+    
+            [[1, 0, 0],
+             [0, 0, 0],
+             [0, 2, 0]]],
+    
+    
+           [[[0, 0, 0],
+             [0, 0, 0],
+             [0, 0, 0]],
+    
+            [[1, 0, 0],
+             [0, 0, 0],
+             [0, 2, 0]]]])>, action=<tf.Tensor: shape=(2, 2, 1), dtype=int32, numpy=
+    array([[[0],
+            [1]],
+    
+           [[0],
+            [1]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
     array([[1, 1],
-           [1, 1]])>, observation=<tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
-    array([[[[1, 2, 0],
-             [0, 0, 0],
-             [0, 0, 0]],
-    
-            [[1, 2, 0],
-             [2, 0, 0],
-             [0, 1, 0]]],
-    
-    
-           [[[1, 2, 0],
-             [0, 0, 0],
-             [0, 0, 0]],
-    
-            [[1, 2, 0],
-             [2, 0, 0],
-             [0, 1, 0]]]])>, action=<tf.Tensor: shape=(2, 2, 1), dtype=int32, numpy=
-    array([[[7],
-            [7]],
-    
-           [[7],
-            [7]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
-    array([[1, 2],
-           [1, 2]])>, reward=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
-    array([[ 0., -2.],
-           [ 0., -2.]], dtype=float32)>, discount=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
+           [1, 1]])>, reward=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
+    array([[0., 0.],
+           [0., 0.]], dtype=float32)>, discount=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
     array([[1., 1.],
            [1., 1.]], dtype=float32)>)
     
     BufferInfo(ids=<tf.Tensor: shape=(2, 2), dtype=int64, numpy=
-    array([[1, 2],
-           [1, 2]], dtype=int64)>, probabilities=<tf.Tensor: shape=(2,), dtype=float32, numpy=array([0.5, 0.5], dtype=float32)>)
+    array([[0, 1],
+           [0, 1]], dtype=int64)>, probabilities=<tf.Tensor: shape=(2,), dtype=float32, numpy=array([1., 1.], dtype=float32)>)
     
 
 
@@ -677,7 +622,7 @@ player_1.episode_return(), player_2.episode_return()
 
 
 
-    (-2.0, 0.0)
+    (0.0, -2.0)
 
 
 
@@ -765,17 +710,17 @@ def plot_history():
     
     sns.lineplot(ax=axs[1][0],
                  x='iteration',
-                 y='p1_win',
+                 y='p1_win_rate',
                  data=summed_games_data,
                  label='Player 1 Win Rate')
     sns.lineplot(ax=axs[1][0],
                  x='iteration',
-                 y='p2_win',
+                 y='p2_win_rate',
                  data=summed_games_data,
                  label='Player 2 Win Rate')
     sns.lineplot(ax=axs[1][0],
                  x='iteration',
-                 y='illegal',
+                 y='illegal_rate',
                  data=summed_games_data,
                  label='Illegal Ending Ratio')
     axs[1][0].set_title('Outcomes History')
@@ -834,42 +779,6 @@ for _ in range(initial_collect_episodes):
 print('Samples collected')
 ```
 
-    Model: "Player1QRNN"
-    _________________________________________________________________
-    Layer (type)                 Output Shape              Param #   
-    =================================================================
-    EncodingNetwork (EncodingNet multiple                  3790      
-    _________________________________________________________________
-    dynamic_unroll_168 (DynamicU multiple                  12960     
-    _________________________________________________________________
-    Player1QRNN/dense (Dense)    multiple                  3075      
-    _________________________________________________________________
-    Player1QRNN/dense (Dense)    multiple                  3040      
-    _________________________________________________________________
-    num_action_project/dense (De multiple                  369       
-    =================================================================
-    Total params: 23,234
-    Trainable params: 23,234
-    Non-trainable params: 0
-    _________________________________________________________________
-    Model: "Player2QRNN"
-    _________________________________________________________________
-    Layer (type)                 Output Shape              Param #   
-    =================================================================
-    EncodingNetwork (EncodingNet multiple                  3790      
-    _________________________________________________________________
-    dynamic_unroll_170 (DynamicU multiple                  12960     
-    _________________________________________________________________
-    Player2QRNN/dense (Dense)    multiple                  3075      
-    _________________________________________________________________
-    Player2QRNN/dense (Dense)    multiple                  3040      
-    _________________________________________________________________
-    num_action_project/dense (De multiple                  369       
-    =================================================================
-    Total params: 23,234
-    Trainable params: 23,234
-    Non-trainable params: 0
-    _________________________________________________________________
     Collecting Initial Training Sample...
     Samples collected
     
@@ -888,8 +797,9 @@ logger.setLevel(logging.CRITICAL)
 
 ```python
 try:
-    plot_history()
-    clear_output(wait=True)
+    if iteration > 1:
+        plot_history()
+        clear_output(wait=True)
     while iteration < num_iterations:
         collect_training_data()
         train()
@@ -905,96 +815,198 @@ except KeyboardInterrupt:
     clear_output(wait=True)
 ```
 
+    Interrupting training, plotting history...
+    
 
-![png](output_24_0.png)
+
+![png](output_24_1.png)
 
 
 
 ```python
-games_data = pd.DataFrame.from_records(games)
-games_data.head()
+ts = tf_ttt_env.reset()
+player_1.reset()
+player_2.reset()
+print('Start:')
+print_tic_tac_toe(ts.observation.numpy())
+
+players = cycle([player_1, player_2])
+while not ts.is_last():
+    player = next(players)
+    traj = player.act()
+    ts = player._current_time_step()
+    print(f'Player: {player.name}, '
+          f'Action: {traj.action[0][0]}, '
+          f'Reward: {ts.reward.numpy()[0]}')
+    print_tic_tac_toe(ts.observation.numpy())
 ```
 
+    Start:
+    
+          |   |  
+        - + - + -
+          |   |  
+        - + - + -
+          |   |  
+        
+    Player: Player2, Action: 3, Reward: 0.0
+    
+          |   |  
+        - + - + -
+        O |   |  
+        - + - + -
+          |   |  
+        
+    Player: Player1, Action: 2, Reward: 0.0
+    
+          |   | X
+        - + - + -
+        O |   |  
+        - + - + -
+          |   |  
+        
+    Player: Player2, Action: 7, Reward: 0.0
+    
+          |   | X
+        - + - + -
+        O |   |  
+        - + - + -
+          | O |  
+        
+    Player: Player1, Action: 5, Reward: 0.0
+    
+          |   | X
+        - + - + -
+        O |   | X
+        - + - + -
+          | O |  
+        
+    Player: Player2, Action: 1, Reward: 0.0
+    
+          | O | X
+        - + - + -
+        O |   | X
+        - + - + -
+          | O |  
+        
+    Player: Player1, Action: 4, Reward: 0.0
+    
+          | O | X
+        - + - + -
+        O | X | X
+        - + - + -
+          | O |  
+        
+    Player: Player2, Action: 8, Reward: 0.0
+    
+          | O | X
+        - + - + -
+        O | X | X
+        - + - + -
+          | O | O
+        
+    Player: Player1, Action: 6, Reward: 1.0
+    
+          | O | X
+        - + - + -
+        O | X | X
+        - + - + -
+        X | O | O
+        
+    
 
 
+```python
+ts = tf_ttt_env.reset()
+player_1.reset()
+player_2.reset()
+print('Start:')
+print_tic_tac_toe(ts.observation.numpy())
 
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
+players = cycle([player_2, player_1])
+while not ts.is_last():
+    player = next(players)
+    traj = player.act()
+    ts = player._current_time_step()
+    print(f'Player: {player.name}, '
+          f'Action: {traj.action[0][0]}, '
+          f'Reward: {ts.reward.numpy()[0]}')
+    print_tic_tac_toe(ts.observation.numpy())
+```
 
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>iteration</th>
-      <th>game</th>
-      <th>p1_return</th>
-      <th>p2_return</th>
-      <th>outcome</th>
-      <th>final_step</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th>0</th>
-      <td>0</td>
-      <td>0</td>
-      <td>-1000.0</td>
-      <td>0.0</td>
-      <td>illegal</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-    <tr>
-      <th>1</th>
-      <td>0</td>
-      <td>1</td>
-      <td>0.0</td>
-      <td>-1000.0</td>
-      <td>illegal</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-    <tr>
-      <th>2</th>
-      <td>0</td>
-      <td>2</td>
-      <td>1.0</td>
-      <td>0.0</td>
-      <td>p1_win</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-    <tr>
-      <th>3</th>
-      <td>0</td>
-      <td>3</td>
-      <td>-1000.0</td>
-      <td>0.0</td>
-      <td>illegal</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-    <tr>
-      <th>4</th>
-      <td>0</td>
-      <td>4</td>
-      <td>-1000.0</td>
-      <td>0.0</td>
-      <td>illegal</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-  </tbody>
-</table>
-</div>
-
-
+    Start:
+    
+          |   |  
+        - + - + -
+          |   |  
+        - + - + -
+          |   |  
+        
+    Player: Player2, Action: 3, Reward: 0.0
+    
+          |   |  
+        - + - + -
+        O |   |  
+        - + - + -
+          |   |  
+        
+    Player: Player1, Action: 2, Reward: 0.0
+    
+          |   | X
+        - + - + -
+        O |   |  
+        - + - + -
+          |   |  
+        
+    Player: Player2, Action: 7, Reward: 0.0
+    
+          |   | X
+        - + - + -
+        O |   |  
+        - + - + -
+          | O |  
+        
+    Player: Player1, Action: 5, Reward: 0.0
+    
+          |   | X
+        - + - + -
+        O |   | X
+        - + - + -
+          | O |  
+        
+    Player: Player2, Action: 1, Reward: 0.0
+    
+          | O | X
+        - + - + -
+        O |   | X
+        - + - + -
+          | O |  
+        
+    Player: Player1, Action: 4, Reward: 0.0
+    
+          | O | X
+        - + - + -
+        O | X | X
+        - + - + -
+          | O |  
+        
+    Player: Player2, Action: 8, Reward: 0.0
+    
+          | O | X
+        - + - + -
+        O | X | X
+        - + - + -
+          | O | O
+        
+    Player: Player1, Action: 6, Reward: 1.0
+    
+          | O | X
+        - + - + -
+        O | X | X
+        - + - + -
+        X | O | O
+        
+    
 
 
 ```python
@@ -1003,67 +1015,10 @@ loss_data.head()
 ```
 
 
-
-
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>iteration</th>
-      <th>p1_loss</th>
-      <th>p2_loss</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th>0</th>
-      <td>0</td>
-      <td>10766328.0</td>
-      <td>2265665.75</td>
-    </tr>
-    <tr>
-      <th>1</th>
-      <td>0</td>
-      <td>10671850.0</td>
-      <td>2359345.50</td>
-    </tr>
-    <tr>
-      <th>2</th>
-      <td>0</td>
-      <td>10906064.0</td>
-      <td>2140547.00</td>
-    </tr>
-    <tr>
-      <th>3</th>
-      <td>0</td>
-      <td>10796404.0</td>
-      <td>2234231.50</td>
-    </tr>
-    <tr>
-      <th>4</th>
-      <td>0</td>
-      <td>10874322.0</td>
-      <td>2140421.75</td>
-    </tr>
-  </tbody>
-</table>
-</div>
-
-
+```python
+games_data = pd.DataFrame.from_records(games)
+games_data.head()
+```
 
 
 ```python
@@ -1125,22 +1080,11 @@ summed_games_data.head()
   </thead>
   <tbody>
     <tr>
-      <th>0</th>
-      <td>45</td>
-      <td>1.0</td>
-      <td>0.0</td>
-      <td>9.0</td>
-      <td>0.1</td>
-      <td>0.0</td>
-      <td>0.9</td>
-      <td>0</td>
-    </tr>
-    <tr>
       <th>1</th>
-      <td>45</td>
+      <td>300</td>
       <td>0.0</td>
       <td>0.0</td>
-      <td>10.0</td>
+      <td>25.0</td>
       <td>0.0</td>
       <td>0.0</td>
       <td>1.0</td>
@@ -1148,10 +1092,10 @@ summed_games_data.head()
     </tr>
     <tr>
       <th>2</th>
-      <td>45</td>
+      <td>300</td>
       <td>0.0</td>
       <td>0.0</td>
-      <td>10.0</td>
+      <td>25.0</td>
       <td>0.0</td>
       <td>0.0</td>
       <td>1.0</td>
@@ -1159,10 +1103,10 @@ summed_games_data.head()
     </tr>
     <tr>
       <th>3</th>
-      <td>45</td>
+      <td>300</td>
       <td>0.0</td>
       <td>0.0</td>
-      <td>10.0</td>
+      <td>25.0</td>
       <td>0.0</td>
       <td>0.0</td>
       <td>1.0</td>
@@ -1170,165 +1114,29 @@ summed_games_data.head()
     </tr>
     <tr>
       <th>4</th>
-      <td>45</td>
+      <td>300</td>
       <td>0.0</td>
       <td>0.0</td>
-      <td>10.0</td>
+      <td>25.0</td>
       <td>0.0</td>
       <td>0.0</td>
       <td>1.0</td>
       <td>4</td>
     </tr>
+    <tr>
+      <th>5</th>
+      <td>300</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>25.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>5</td>
+    </tr>
   </tbody>
 </table>
 </div>
-
-
-
-
-```python
-player_1._replay_buffer.get_next(num_steps = 2, sample_batch_size=3)
-```
-
-
-
-
-    (Trajectory(step_type=<tf.Tensor: shape=(3, 2), dtype=int32, numpy=
-     array([[0, 1],
-            [0, 0],
-            [1, 1]])>, observation=<tf.Tensor: shape=(3, 2, 3, 3), dtype=int32, numpy=
-     array([[[[0, 0, 0],
-              [0, 0, 0],
-              [0, 0, 0]],
-     
-             [[1, 0, 0],
-              [0, 2, 0],
-              [0, 0, 0]]],
-     
-     
-            [[[0, 0, 0],
-              [0, 0, 0],
-              [0, 0, 0]],
-     
-             [[0, 0, 0],
-              [0, 0, 0],
-              [0, 0, 0]]],
-     
-     
-            [[[0, 2, 0],
-              [0, 0, 0],
-              [0, 0, 0]],
-     
-             [[0, 2, 0],
-              [0, 0, 1],
-              [2, 0, 0]]]])>, action=<tf.Tensor: shape=(3, 2, 1), dtype=int32, numpy=
-     array([[[0],
-             [6]],
-     
-            [[5],
-             [5]],
-     
-            [[5],
-             [5]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(3, 2), dtype=int32, numpy=
-     array([[1, 1],
-            [1, 1],
-            [1, 2]])>, reward=<tf.Tensor: shape=(3, 2), dtype=float32, numpy=
-     array([[    0.,     0.],
-            [    0.,     0.],
-            [    0., -1000.]], dtype=float32)>, discount=<tf.Tensor: shape=(3, 2), dtype=float32, numpy=
-     array([[1., 1.],
-            [1., 1.],
-            [1., 1.]], dtype=float32)>),
-     BufferInfo(ids=<tf.Tensor: shape=(3, 2), dtype=int64, numpy=
-     array([[100, 101],
-            [356, 357],
-            [337, 338]], dtype=int64)>, probabilities=<tf.Tensor: shape=(3,), dtype=float32, numpy=array([0.00186916, 0.00186916, 0.00186916], dtype=float32)>))
-
-
-
-
-```python
-ts = tf_ttt_env.reset()
-player_1.reset()
-player_2.reset()
-print_tic_tac_toe(ts.observation.numpy())
-
-if bool(random.randint(0, 1)):
-    players = cycle([player_1, player_2])
-else:
-    players = cycle([player_2, player_1])
-    
-while not ts.is_last():
-    player = next(players)
-    player.act()
-    ts = tf_ttt_env.current_time_step()
-    print_tic_tac_toe(ts.observation.numpy())
-```
-
-    
-          |   |  
-        - + - + -
-          |   |  
-        - + - + -
-          |   |  
-        
-    
-        O |   |  
-        - + - + -
-          |   |  
-        - + - + -
-          |   |  
-        
-    
-        O |   |  
-        - + - + -
-          |   |  
-        - + - + -
-          |   |  
-        
-    
-
-
-```python
-ts = tf_ttt_env.reset()
-out, state = player_1._q_network(ts.observation, step_type=ts.step_type)
-out, tf.argmax(out, axis=-1)
-```
-
-
-
-
-    (<tf.Tensor: shape=(1, 9), dtype=float32, numpy=
-     array([[-6656374.5, -6647018. , -6655758. , -6662560.5, -6660408. ,
-             -6648186.5, -6658006.5, -6658451. , -6650753.5]], dtype=float32)>,
-     <tf.Tensor: shape=(1,), dtype=int64, numpy=array([1], dtype=int64)>)
-
-
-
-
-```python
-player_1.policy.action(
-    ts, 
-    policy_state=player_1.policy.get_initial_state(batch_size=tf_ttt_env.batch_size))
-```
-
-
-
-
-    PolicyStep(action=<tf.Tensor: shape=(1, 1), dtype=int32, numpy=array([[1]])>, state=[<tf.Tensor: shape=(1, 40), dtype=float32, numpy=
-    array([[-0.7615942,  0.7615942, -0.7615942,  0.7615942,  0.7615942,
-             0.7615942, -0.7615942,  0.7615942,  0.7615942, -0.7615942,
-             0.7615942,  0.7615942,  0.7615942,  0.7615942,  0.7615942,
-            -0.7615942,  0.7615942, -0.7615942, -0.7615942,  0.7615942,
-             0.7615942,  0.7615942,  0.7615942, -0.7615942, -0.7615942,
-            -0.7615942,  0.7615942,  0.7615942, -0.7615942,  0.7615942,
-             0.7615942, -0.7615942, -0.7615942,  0.7615942,  0.7615942,
-            -0.7615942,  0.7615942,  0.7615942,  0.7615942,  0.7615942]],
-          dtype=float32)>, <tf.Tensor: shape=(1, 40), dtype=float32, numpy=
-    array([[-1.,  1., -1.,  1.,  1.,  1., -1.,  1.,  1., -1.,  1.,  1.,  1.,
-             1.,  1., -1.,  1., -1., -1.,  1.,  1.,  1.,  1., -1., -1., -1.,
-             1.,  1., -1.,  1.,  1., -1., -1.,  1.,  1., -1.,  1.,  1.,  1.,
-             1.]], dtype=float32)>], info=())
 
 
 
