@@ -118,13 +118,7 @@ class IMAgent(DqnAgent):
         self._training_parallel_calls = training_parallel_calls
         self._training_prefetch_buffer_size = training_prefetch_buffer_size
         self._training_num_steps = training_num_steps
-
-        dataset = self._replay_buffer.as_dataset(
-            num_parallel_calls=training_parallel_calls,
-            sample_batch_size=training_batch_size,
-            num_steps=training_num_steps
-        ).prefetch(training_prefetch_buffer_size)
-
+        self.train = common.function(self.train)
 
     def _build_q_net(self):
         qrnn = QRnnNetwork(input_tensor_spec=self._observation_spec,
@@ -384,7 +378,7 @@ player_2 = IMAgent(
     =================================================================
     EncodingNetwork (EncodingNet multiple                  3790      
     _________________________________________________________________
-    dynamic_unroll_152 (DynamicU multiple                  12960     
+    dynamic_unroll_164 (DynamicU multiple                  12960     
     _________________________________________________________________
     Player1QRNN/dense (Dense)    multiple                  3075      
     _________________________________________________________________
@@ -402,7 +396,7 @@ player_2 = IMAgent(
     =================================================================
     EncodingNetwork (EncodingNet multiple                  3790      
     _________________________________________________________________
-    dynamic_unroll_154 (DynamicU multiple                  12960     
+    dynamic_unroll_166 (DynamicU multiple                  12960     
     _________________________________________________________________
     Player2QRNN/dense (Dense)    multiple                  3075      
     _________________________________________________________________
@@ -452,17 +446,25 @@ while not ts.is_last():
         
     Player: Player2, Reward: 0.0
     
-          | X | O
+          | X |  
         - + - + -
-          |   |  
+        O |   |  
         - + - + -
           |   |  
         
-    Player: Player1, Reward: -2.0
+    Player: Player1, Reward: 0.0
     
-          | X | O
+          | X |  
+        - + - + -
+        O |   | X
         - + - + -
           |   |  
+        
+    Player: Player2, Reward: -2.0
+    
+          | X |  
+        - + - + -
+        O |   | X
         - + - + -
           |   |  
         
@@ -619,79 +621,53 @@ player_1._replay_buffer.num_frames()
 
 
 
-    <tf.Tensor: shape=(), dtype=int64, numpy=2>
+    <tf.Tensor: shape=(), dtype=int64, numpy=3>
 
 
 
 
 ```python
 traj, info = player_1._replay_buffer.get_next(num_steps=2, sample_batch_size=2)
-traj
+print(traj)
+print()
+print(info)
 ```
-
-
-
 
     Trajectory(step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
-    array([[0, 1],
-           [0, 1]])>, observation=<tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
-    array([[[[0, 0, 0],
-             [0, 0, 0],
-             [0, 0, 0]],
-    
-            [[0, 0, 2],
-             [0, 1, 0],
-             [0, 0, 0]]],
-    
-    
-           [[[0, 0, 0],
-             [0, 0, 0],
-             [0, 0, 0]],
-    
-            [[0, 0, 2],
-             [0, 1, 0],
-             [0, 0, 0]]]])>, action=<tf.Tensor: shape=(2, 2, 1), dtype=int32, numpy=
-    array([[[4],
-            [0]],
-    
-           [[4],
-            [0]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
     array([[1, 1],
-           [1, 1]])>, reward=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
-    array([[0., 0.],
-           [0., 0.]], dtype=float32)>, discount=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
+           [1, 1]])>, observation=<tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
+    array([[[[1, 2, 0],
+             [0, 0, 0],
+             [0, 0, 0]],
+    
+            [[1, 2, 0],
+             [2, 0, 0],
+             [0, 1, 0]]],
+    
+    
+           [[[1, 2, 0],
+             [0, 0, 0],
+             [0, 0, 0]],
+    
+            [[1, 2, 0],
+             [2, 0, 0],
+             [0, 1, 0]]]])>, action=<tf.Tensor: shape=(2, 2, 1), dtype=int32, numpy=
+    array([[[7],
+            [7]],
+    
+           [[7],
+            [7]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
+    array([[1, 2],
+           [1, 2]])>, reward=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
+    array([[ 0., -2.],
+           [ 0., -2.]], dtype=float32)>, discount=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
     array([[1., 1.],
            [1., 1.]], dtype=float32)>)
-
-
-
-
-```python
-traj.observation
-```
-
-
-
-
-    <tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
-    array([[[[0, 0, 0],
-             [0, 0, 0],
-             [0, 0, 0]],
     
-            [[0, 0, 2],
-             [0, 1, 0],
-             [0, 0, 0]]],
+    BufferInfo(ids=<tf.Tensor: shape=(2, 2), dtype=int64, numpy=
+    array([[1, 2],
+           [1, 2]], dtype=int64)>, probabilities=<tf.Tensor: shape=(2,), dtype=float32, numpy=array([0.5, 0.5], dtype=float32)>)
     
-    
-           [[[0, 0, 0],
-             [0, 0, 0],
-             [0, 0, 0]],
-    
-            [[0, 0, 2],
-             [0, 1, 0],
-             [0, 0, 0]]]])>
-
-
 
 
 ```python
@@ -701,7 +677,7 @@ player_1.episode_return(), player_2.episode_return()
 
 
 
-    (0.0, -2.0)
+    (-2.0, 0.0)
 
 
 
@@ -747,36 +723,30 @@ def plot_history():
     
     games_data = pd.DataFrame.from_records(games)
     loss_data = pd.DataFrame.from_records(loss_infos)
-    loss_data['p1_loss'] = np.log(loss_data.p1_loss)
-    loss_data['p2_loss'] = np.log(loss_data.p2_loss)
+    loss_data['Player 1'] = np.log(loss_data.p1_loss)
+    loss_data['Player 2'] = np.log(loss_data.p2_loss)
     
     fig, axs = plt.subplots(2, 2, figsize=(15, 12))
     
-    sns.lineplot(ax=axs[0][0],
-                 x='iteration',
-                 y='p1_loss',
-                 data=loss_data,
-                 label='Player 1')
-    
-    sns.lineplot(ax=axs[0][0],
-                 x='iteration',
-                 y='p2_loss',
-                 data=loss_data,
-                 label='Player 2')
+    loss_melted = pd.melt(loss_data, 
+                          id_vars=['iteration'], 
+                          value_vars=['Player 1', 'Player 2'])
+    smoothing = iteration // 50
+    loss_melted.iteration = smoothing * (loss_melted.iteration // smoothing)
+
+    sns.lineplot(ax=axs[0][0], 
+                 x='iteration', hue='variable', 
+                 y='value', data=loss_melted)
     axs[0][0].set_title('Loss History')
     axs[0][0].set_ylabel('log-loss')
     
-    sns.lineplot(ax=axs[0][1],
-                 x='iteration',
-                 y='p1_return',
-                 data=games_data,
-                 label='Player 1')
-    
-    sns.lineplot(ax=axs[0][1],
-                 x='iteration',
-                 y='p2_return',
-                 data=games_data,
-                 label='Player 2')
+    returns_melted = pd.melt(games_data, 
+                             id_vars=['iteration'], 
+                             value_vars=['p1_return', 'p2_return'])
+    returns_melted.iteration = smoothing * (returns_melted.iteration // smoothing)
+    sns.lineplot(ax=axs[0][1], 
+                 x='iteration', hue='variable', 
+                 y='value', data=returns_melted)
     axs[0][1].set_title('Return History')
     axs[0][1].set_ylabel('return')
 
@@ -791,7 +761,7 @@ def plot_history():
     summed_games_data['p1_win_rate'] = summed_games_data.p1_win / game_totals
     summed_games_data['p2_win_rate'] = summed_games_data.p2_win / game_totals
     summed_games_data['illegal_rate'] = summed_games_data.illegal / game_totals
-    summed_games_data['iteration'] = summed_games_data.index
+    summed_games_data['iteration'] = smoothing * (summed_games_data.index // smoothing)
     
     sns.lineplot(ax=axs[1][0],
                  x='iteration',
@@ -816,11 +786,15 @@ def plot_history():
 
 
 ```python
-num_iterations = 2000
+num_iterations = 10000
 initial_collect_episodes = 100
 episodes_per_iteration = 25
-train_steps_per_iteration = 100
-plot_interval = 3
+train_steps_per_iteration = 1
+training_batch_size = 512
+training_num_steps = 2
+replay_buffer_size = 50000
+learning_rate = 1e-3
+plot_interval = 50
 ```
 
 
@@ -834,10 +808,10 @@ player_1 = IMAgent(
     action_spec = tf_ttt_env.action_spec()['position'],
     action_fn = partial(ttt_action_fn, 1),
     name='Player1',
-    learning_rate = 1e-3,
-    training_batch_size = 64,
-    training_num_steps = 4,
-    replay_buffer_max_length = 50000,
+    learning_rate = learning_rate,
+    training_batch_size = training_batch_size,
+    training_num_steps = training_num_steps,
+    replay_buffer_max_length = replay_buffer_size,
     td_errors_loss_fn=common.element_wise_squared_loss
 )
 
@@ -847,10 +821,10 @@ player_2 = IMAgent(
     action_fn = partial(ttt_action_fn, 2),
     reward_fn = p2_reward_fn,
     name='Player2',
-    learning_rate = 1e-3,
-    training_batch_size = 64,
-    training_num_steps = 4,
-    replay_buffer_max_length = 50000,
+    learning_rate = learning_rate,
+    training_batch_size = training_batch_size,
+    training_num_steps = training_num_steps,
+    replay_buffer_max_length = replay_buffer_size,
     td_errors_loss_fn=common.element_wise_squared_loss
 )
 
@@ -866,7 +840,7 @@ print('Samples collected')
     =================================================================
     EncodingNetwork (EncodingNet multiple                  3790      
     _________________________________________________________________
-    dynamic_unroll_160 (DynamicU multiple                  12960     
+    dynamic_unroll_168 (DynamicU multiple                  12960     
     _________________________________________________________________
     Player1QRNN/dense (Dense)    multiple                  3075      
     _________________________________________________________________
@@ -884,7 +858,7 @@ print('Samples collected')
     =================================================================
     EncodingNetwork (EncodingNet multiple                  3790      
     _________________________________________________________________
-    dynamic_unroll_162 (DynamicU multiple                  12960     
+    dynamic_unroll_170 (DynamicU multiple                  12960     
     _________________________________________________________________
     Player2QRNN/dense (Dense)    multiple                  3075      
     _________________________________________________________________
@@ -902,11 +876,6 @@ print('Samples collected')
 
 
 ```python
-import tf_agents
-```
-
-
-```python
 import logging
 logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', 
                     level=logging.CRITICAL, datefmt='%I:%M:%S')
@@ -919,6 +888,8 @@ logger.setLevel(logging.CRITICAL)
 
 ```python
 try:
+    plot_history()
+    clear_output(wait=True)
     while iteration < num_iterations:
         collect_training_data()
         train()
@@ -934,11 +905,8 @@ except KeyboardInterrupt:
     clear_output(wait=True)
 ```
 
-    Interrupting training, plotting history...
-    
 
-
-![png](output_26_1.png)
+![png](output_24_0.png)
 
 
 
