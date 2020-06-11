@@ -19,14 +19,19 @@ This provides us with two approaches to our problem. We could make the enviromen
 
 ```python
 from functools import partial
+from IPython.display import clear_output
+from itertools import cycle
 from pathlib import Path
 import random
 from time import time
 from typing import Tuple, List, Callable
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 %matplotlib inline
+import seaborn as sns
+sns.set()
 
 import tensorflow as tf
 from tf_agents.agents import DqnAgent
@@ -39,6 +44,7 @@ from tf_agents.specs import TensorSpec
 from tf_agents.trajectories import trajectory
 from tf_agents.trajectories.time_step import TimeStep
 from tf_agents.trajectories.trajectory import Trajectory
+from tf_agents.utils import common
 
 print('Physical Devices:\n', tf.config.list_physical_devices(), '\n\n')
 
@@ -47,10 +53,10 @@ print('Output Directory:', OUTPUTS_DIR)
 ```
 
     Physical Devices:
-     [PhysicalDevice(name='/physical_device:CPU:0', device_type='CPU'), PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU')] 
+     [PhysicalDevice(name='/physical_device:CPU:0', device_type='CPU')] 
     
     
-    Output Directory: ./outputs/15905145823503500
+    Output Directory: ./outputs/15918169468946548
     
 
 
@@ -101,11 +107,17 @@ class IMAgent(DqnAgent):
 
         self._policy_state = self.policy.get_initial_state(
             batch_size=self._env.batch_size)
+        self._rewards = []
 
         self._replay_buffer = TFUniformReplayBuffer(
             data_spec=self.collect_data_spec,
             batch_size=self._env.batch_size,
             max_length=replay_buffer_max_length)
+        
+        self._training_batch_size = training_batch_size
+        self._training_parallel_calls = training_parallel_calls
+        self._training_prefetch_buffer_size = training_prefetch_buffer_size
+        self._training_num_steps = training_num_steps
 
         dataset = self._replay_buffer.as_dataset(
             num_parallel_calls=training_parallel_calls,
@@ -113,7 +125,6 @@ class IMAgent(DqnAgent):
             num_steps=training_num_steps
         ).prefetch(training_prefetch_buffer_size)
 
-        self._training_data_iter = iter(dataset)
 
     def _build_q_net(self):
         qrnn = QRnnNetwork(input_tensor_spec=self._observation_spec,
@@ -125,9 +136,14 @@ class IMAgent(DqnAgent):
 
         return qrnn
 
-    def reset_state(self):
+    def reset(self):
         self._policy_state = self.policy.get_initial_state(
-            batch_size=self._env.batch_size)
+            batch_size=self._env.batch_size
+        )
+        self._rewards = []
+        
+    def episode_return(self) -> float:
+        return np.sum(self._rewards)
         
     def _observation_fn(self, observation: tf.Tensor) -> tf.Tensor:
         """
@@ -185,13 +201,18 @@ class IMAgent(DqnAgent):
         next_time_step = self._step_environment(policy_step.action)
         traj = trajectory.from_transition(time_step, policy_step, next_time_step)
 
+        self._rewards.append(next_time_step.reward)
+        
         if collect:
             self._replay_buffer.add_batch(traj)
 
         return traj
 
     def train_iteration(self) -> LossInfo:
-        experience, buffer_info = next(self._training_data_iter)
+        experience, info = self._replay_buffer.get_next(
+            sample_batch_size=self._training_batch_size,
+            num_steps=self._training_num_steps
+        )
         return self.train(experience)
 ```
 
@@ -208,6 +229,8 @@ The only additional change that we need to make is to the action specification, 
 from tic_tac_toe_environment import TicTacToeEnvironment
 from tf_agents.specs import BoundedArraySpec
 from tf_agents.trajectories.time_step import StepType
+
+REWARD_ILLEGAL_MOVE = np.asarray(-2, dtype=np.float32)
 
 class TicTacToeMultiAgentEnv(TicTacToeEnvironment):
     
@@ -227,7 +250,7 @@ class TicTacToeMultiAgentEnv(TicTacToeEnvironment):
         index = index_flat.reshape(self._states.shape) == True
         if self._states[index] != 0:
             return TimeStep(StepType.LAST, 
-                            TicTacToeEnvironment.REWARD_ILLEGAL_MOVE,
+                            REWARD_ILLEGAL_MOVE,
                             self._discount, 
                             self._states)
 
@@ -315,7 +338,7 @@ while not ts.is_last():
         - + - + -
           |   |  
         
-    Player: 2 Action: 1 Reward: -0.001 Board:
+    Player: 2 Action: 1 Reward: -2.0 Board:
     
           | O | X
         - + - + -
@@ -334,16 +357,23 @@ tf_ttt_env = TFPyEnvironment(tic_tac_toe_env)
 
 player_1 = IMAgent(
     tf_ttt_env,
-    action_spec = tic_tac_toe_env.action_spec()['position'],
+    action_spec = tf_ttt_env.action_spec()['position'],
     action_fn = partial(ttt_action_fn, 1),
     name='Player1'
 )
 
+def p2_reward_fn(ts: TimeStep) -> float:
+    if ts.reward == -1.0:
+        return 1.0
+    if ts.reward == 1.0:
+        return -1.0
+    return ts.reward
+
 player_2 = IMAgent(
     tf_ttt_env,
-    action_spec = tic_tac_toe_env.action_spec()['position'],
+    action_spec = tf_ttt_env.action_spec()['position'],
     action_fn = partial(ttt_action_fn, 2),
-    reward_fn = lambda ts: -1.0 if ts.reward == 1.0 else ts.reward,
+    reward_fn = p2_reward_fn,
     name='Player2'
 )
 ```
@@ -354,7 +384,7 @@ player_2 = IMAgent(
     =================================================================
     EncodingNetwork (EncodingNet multiple                  3790      
     _________________________________________________________________
-    dynamic_unroll_3 (DynamicUnr multiple                  12960     
+    dynamic_unroll_152 (DynamicU multiple                  12960     
     _________________________________________________________________
     Player1QRNN/dense (Dense)    multiple                  3075      
     _________________________________________________________________
@@ -366,74 +396,972 @@ player_2 = IMAgent(
     Trainable params: 23,234
     Non-trainable params: 0
     _________________________________________________________________
+    Model: "Player2QRNN"
+    _________________________________________________________________
+    Layer (type)                 Output Shape              Param #   
+    =================================================================
+    EncodingNetwork (EncodingNet multiple                  3790      
+    _________________________________________________________________
+    dynamic_unroll_154 (DynamicU multiple                  12960     
+    _________________________________________________________________
+    Player2QRNN/dense (Dense)    multiple                  3075      
+    _________________________________________________________________
+    Player2QRNN/dense (Dense)    multiple                  3040      
+    _________________________________________________________________
+    num_action_project/dense (De multiple                  369       
+    =================================================================
+    Total params: 23,234
+    Trainable params: 23,234
+    Non-trainable params: 0
+    _________________________________________________________________
     
 
 
-    ---------------------------------------------------------------------------
+```python
+ts = tf_ttt_env.reset()
 
-    AttributeError                            Traceback (most recent call last)
+# arbitrary starting point to add variety
+random.seed(1)
+start_player_id = random.randint(1, 2)
+tf_ttt_env.step({'position': tf.convert_to_tensor([random.randint(0, 8)]), 
+                 'value': start_player_id})
+ts = tf_ttt_env.current_time_step()
+print('Random start board:')
+print_tic_tac_toe(ts.observation.numpy())
 
-    <ipython-input-140-f71a51eddc48> in <module>
-          8     action_spec = tic_tac_toe_env.action_spec()['position'],
-          9     action_fn = partial(ttt_action_fn, 1),
-    ---> 10     name='Player1'
-         11 )
-         12 
+if start_player_id == 2:
+    players = cycle([player_1, player_2])
+else:
+    players = cycle([player_2, player_1])
+    
+while not ts.is_last():
+    player = next(players)
+    player.act()
+    ts = tf_ttt_env.current_time_step()
+    print(f'Player: {player.name}, Reward: {ts.reward[0]}')
+    print_tic_tac_toe(ts.observation.numpy())
+```
+
+    Random start board:
+    
+          | X |  
+        - + - + -
+          |   |  
+        - + - + -
+          |   |  
+        
+    Player: Player2, Reward: 0.0
+    
+          | X | O
+        - + - + -
+          |   |  
+        - + - + -
+          |   |  
+        
+    Player: Player1, Reward: -2.0
+    
+          | X | O
+        - + - + -
+          |   |  
+        - + - + -
+          |   |  
+        
     
 
-    <ipython-input-108-6f6da4a896bc> in __init__(self, env, observation_spec, action_spec, reward_fn, action_fn, name, q_network, replay_buffer_max_length, learning_rate, training_batch_size, training_parallel_calls, training_prefetch_buffer_size, training_num_steps, **dqn_kwargs)
-         41                          optimizer,
-         42                          name=name,
-    ---> 43                          **dqn_kwargs)
-         44 
-         45         self._policy_state = self.policy.get_initial_state(
+
+```python
+ts = tf_ttt_env.reset()
+
+tf_ttt_env.step({'position': tf.convert_to_tensor([0]), 
+                 'value': 2})
+
+tf_ttt_env.step({'position': tf.convert_to_tensor([4]), 
+                 'value': 2})
+
+tf_ttt_env.step({'position': tf.convert_to_tensor([8]), 
+                 'value': 2})
+
+ts = tf_ttt_env.current_time_step()
+print(ts)
+print_tic_tac_toe(ts.observation.numpy())
+```
+
+    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
+    array([[[2, 0, 0],
+            [0, 2, 0],
+            [0, 0, 2]]])>)
+    
+        O |   |  
+        - + - + -
+          | O |  
+        - + - + -
+          |   | O
+        
     
 
-    ~\Miniconda3\envs\xai-it\lib\site-packages\gin\config.py in wrapper(*args, **kwargs)
-       1030         scope_info = " in scope '{}'".format(scope_str) if scope_str else ''
-       1031         err_str = err_str.format(name, fn, scope_info)
-    -> 1032         utils.augment_exception_message_and_reraise(e, err_str)
-       1033 
-       1034     return wrapper
+
+```python
+player_1._augment_time_step(ts)
+```
+
+
+
+
+    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
+    array([[[2, 0, 0],
+            [0, 2, 0],
+            [0, 0, 2]]])>)
+
+
+
+
+```python
+player_2._augment_time_step(ts)
+```
+
+
+
+
+    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
+    array([[[2, 0, 0],
+            [0, 2, 0],
+            [0, 0, 2]]])>)
+
+
+
+
+```python
+ts = tf_ttt_env.reset()
+
+tf_ttt_env.step({'position': tf.convert_to_tensor([0]), 
+                 'value': 1})
+
+tf_ttt_env.step({'position': tf.convert_to_tensor([4]), 
+                 'value': 1})
+
+tf_ttt_env.step({'position': tf.convert_to_tensor([8]), 
+                 'value': 1})
+
+ts = tf_ttt_env.current_time_step()
+print(ts)
+print_tic_tac_toe(ts.observation.numpy())
+```
+
+    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
+    array([[[1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1]]])>)
+    
+        X |   |  
+        - + - + -
+          | X |  
+        - + - + -
+          |   | X
+        
     
 
-    ~\Miniconda3\envs\xai-it\lib\site-packages\gin\utils.py in augment_exception_message_and_reraise(exception, message)
-         47   if six.PY3:
-         48     ExceptionProxy.__qualname__ = type(exception).__qualname__
-    ---> 49     six.raise_from(proxy.with_traceback(exception.__traceback__), None)
-         50   else:
-         51     six.reraise(proxy, None, sys.exc_info()[2])
+
+```python
+player_1._augment_time_step(ts)
+```
+
+
+
+
+    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
+    array([[[1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1]]])>)
+
+
+
+
+```python
+player_2._augment_time_step(ts)
+```
+
+
+
+
+    TimeStep(step_type=<tf.Tensor: shape=(1,), dtype=int32, numpy=array([2])>, reward=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>, discount=<tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>, observation=<tf.Tensor: shape=(1, 3, 3), dtype=int32, numpy=
+    array([[[1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 1]]])>)
+
+
+
+
+```python
+def training_episode(tf_ttt_env, player_1, player_2):
+    ts = tf_ttt_env.reset()
+    player_1.reset()
+    player_2.reset()
+    if bool(random.randint(0, 1)):
+        players = cycle([player_1, player_2])
+    else:
+        players = cycle([player_2, player_1])
+    while not ts.is_last():
+        player = next(players)
+        player.act(collect=True)
+        ts = tf_ttt_env.current_time_step()
+```
+
+
+```python
+training_episode(tf_ttt_env, player_1, player_2)
+```
+
+
+```python
+player_1._replay_buffer.num_frames()
+```
+
+
+
+
+    <tf.Tensor: shape=(), dtype=int64, numpy=2>
+
+
+
+
+```python
+traj, info = player_1._replay_buffer.get_next(num_steps=2, sample_batch_size=2)
+traj
+```
+
+
+
+
+    Trajectory(step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
+    array([[0, 1],
+           [0, 1]])>, observation=<tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
+    array([[[[0, 0, 0],
+             [0, 0, 0],
+             [0, 0, 0]],
+    
+            [[0, 0, 2],
+             [0, 1, 0],
+             [0, 0, 0]]],
+    
+    
+           [[[0, 0, 0],
+             [0, 0, 0],
+             [0, 0, 0]],
+    
+            [[0, 0, 2],
+             [0, 1, 0],
+             [0, 0, 0]]]])>, action=<tf.Tensor: shape=(2, 2, 1), dtype=int32, numpy=
+    array([[[4],
+            [0]],
+    
+           [[4],
+            [0]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
+    array([[1, 1],
+           [1, 1]])>, reward=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
+    array([[0., 0.],
+           [0., 0.]], dtype=float32)>, discount=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
+    array([[1., 1.],
+           [1., 1.]], dtype=float32)>)
+
+
+
+
+```python
+traj.observation
+```
+
+
+
+
+    <tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
+    array([[[[0, 0, 0],
+             [0, 0, 0],
+             [0, 0, 0]],
+    
+            [[0, 0, 2],
+             [0, 1, 0],
+             [0, 0, 0]]],
+    
+    
+           [[[0, 0, 0],
+             [0, 0, 0],
+             [0, 0, 0]],
+    
+            [[0, 0, 2],
+             [0, 1, 0],
+             [0, 0, 0]]]])>
+
+
+
+
+```python
+player_1.episode_return(), player_2.episode_return()
+```
+
+
+
+
+    (0.0, -2.0)
+
+
+
+
+```python
+def collect_training_data():
+    for game in range(episodes_per_iteration):
+        training_episode(tf_ttt_env, player_1, player_2)
+
+        p1_return = player_1.episode_return()
+        p2_return =  player_2.episode_return()
+
+        if REWARD_ILLEGAL_MOVE in [p1_return, p2_return]:
+            outcome = 'illegal'
+        elif p1_return == TicTacToeEnvironment.REWARD_WIN:
+            outcome = 'p1_win'
+        elif p2_return == TicTacToeEnvironment.REWARD_WIN:
+            outcome = 'p2_win'
+        else:
+            outcome = 'draw'
+        
+        games.append({
+            'iteration': iteration,
+            'game': game,
+            'p1_return': p1_return,
+            'p2_return': p2_return,
+            'outcome': outcome,
+            'final_step': tf_ttt_env.current_time_step()
+        })
+
+def train():
+    for _ in range(train_steps_per_iteration):
+        p1_train_info = player_1.train_iteration()
+        p2_train_info = player_2.train_iteration()
+    
+        loss_infos.append({
+            'iteration': iteration,
+            'p1_loss': p1_train_info.loss.numpy(),
+            'p2_loss': p2_train_info.loss.numpy()
+        })
+
+def plot_history():
+    
+    games_data = pd.DataFrame.from_records(games)
+    loss_data = pd.DataFrame.from_records(loss_infos)
+    loss_data['p1_loss'] = np.log(loss_data.p1_loss)
+    loss_data['p2_loss'] = np.log(loss_data.p2_loss)
+    
+    fig, axs = plt.subplots(2, 2, figsize=(15, 12))
+    
+    sns.lineplot(ax=axs[0][0],
+                 x='iteration',
+                 y='p1_loss',
+                 data=loss_data,
+                 label='Player 1')
+    
+    sns.lineplot(ax=axs[0][0],
+                 x='iteration',
+                 y='p2_loss',
+                 data=loss_data,
+                 label='Player 2')
+    axs[0][0].set_title('Loss History')
+    axs[0][0].set_ylabel('log-loss')
+    
+    sns.lineplot(ax=axs[0][1],
+                 x='iteration',
+                 y='p1_return',
+                 data=games_data,
+                 label='Player 1')
+    
+    sns.lineplot(ax=axs[0][1],
+                 x='iteration',
+                 y='p2_return',
+                 data=games_data,
+                 label='Player 2')
+    axs[0][1].set_title('Return History')
+    axs[0][1].set_ylabel('return')
+
+    games_data['p1_win'] = games_data.outcome == 'p1_win'
+    games_data['p2_win'] = games_data.outcome == 'p2_win'
+    games_data['illegal'] = games_data.outcome == 'illegal'
+    grouped_games_data = games_data.groupby('iteration')
+    cols = ['game', 'p1_win', 'p2_win', 'illegal']
+    grouped_games_data = grouped_games_data[cols]
+    game_totals =  grouped_games_data.max()['game'] + 1
+    summed_games_data = grouped_games_data.sum()
+    summed_games_data['p1_win_rate'] = summed_games_data.p1_win / game_totals
+    summed_games_data['p2_win_rate'] = summed_games_data.p2_win / game_totals
+    summed_games_data['illegal_rate'] = summed_games_data.illegal / game_totals
+    summed_games_data['iteration'] = summed_games_data.index
+    
+    sns.lineplot(ax=axs[1][0],
+                 x='iteration',
+                 y='p1_win',
+                 data=summed_games_data,
+                 label='Player 1 Win Rate')
+    sns.lineplot(ax=axs[1][0],
+                 x='iteration',
+                 y='p2_win',
+                 data=summed_games_data,
+                 label='Player 2 Win Rate')
+    sns.lineplot(ax=axs[1][0],
+                 x='iteration',
+                 y='illegal',
+                 data=summed_games_data,
+                 label='Illegal Ending Ratio')
+    axs[1][0].set_title('Outcomes History')
+    axs[1][0].set_ylabel('Percentage')
+    
+    plt.show()
+```
+
+
+```python
+num_iterations = 2000
+initial_collect_episodes = 100
+episodes_per_iteration = 25
+train_steps_per_iteration = 100
+plot_interval = 3
+```
+
+
+```python
+iteration = 1
+games = []
+loss_infos = []
+
+player_1 = IMAgent(
+    tf_ttt_env,
+    action_spec = tf_ttt_env.action_spec()['position'],
+    action_fn = partial(ttt_action_fn, 1),
+    name='Player1',
+    learning_rate = 1e-3,
+    training_batch_size = 64,
+    training_num_steps = 4,
+    replay_buffer_max_length = 50000,
+    td_errors_loss_fn=common.element_wise_squared_loss
+)
+
+player_2 = IMAgent(
+    tf_ttt_env,
+    action_spec = tf_ttt_env.action_spec()['position'],
+    action_fn = partial(ttt_action_fn, 2),
+    reward_fn = p2_reward_fn,
+    name='Player2',
+    learning_rate = 1e-3,
+    training_batch_size = 64,
+    training_num_steps = 4,
+    replay_buffer_max_length = 50000,
+    td_errors_loss_fn=common.element_wise_squared_loss
+)
+
+print('Collecting Initial Training Sample...')
+for _ in range(initial_collect_episodes):
+    training_episode(tf_ttt_env, player_1, player_2)
+print('Samples collected')
+```
+
+    Model: "Player1QRNN"
+    _________________________________________________________________
+    Layer (type)                 Output Shape              Param #   
+    =================================================================
+    EncodingNetwork (EncodingNet multiple                  3790      
+    _________________________________________________________________
+    dynamic_unroll_160 (DynamicU multiple                  12960     
+    _________________________________________________________________
+    Player1QRNN/dense (Dense)    multiple                  3075      
+    _________________________________________________________________
+    Player1QRNN/dense (Dense)    multiple                  3040      
+    _________________________________________________________________
+    num_action_project/dense (De multiple                  369       
+    =================================================================
+    Total params: 23,234
+    Trainable params: 23,234
+    Non-trainable params: 0
+    _________________________________________________________________
+    Model: "Player2QRNN"
+    _________________________________________________________________
+    Layer (type)                 Output Shape              Param #   
+    =================================================================
+    EncodingNetwork (EncodingNet multiple                  3790      
+    _________________________________________________________________
+    dynamic_unroll_162 (DynamicU multiple                  12960     
+    _________________________________________________________________
+    Player2QRNN/dense (Dense)    multiple                  3075      
+    _________________________________________________________________
+    Player2QRNN/dense (Dense)    multiple                  3040      
+    _________________________________________________________________
+    num_action_project/dense (De multiple                  369       
+    =================================================================
+    Total params: 23,234
+    Trainable params: 23,234
+    Non-trainable params: 0
+    _________________________________________________________________
+    Collecting Initial Training Sample...
+    Samples collected
     
 
-    ~\Miniconda3\envs\xai-it\lib\site-packages\six.py in raise_from(value, from_value)
+
+```python
+import tf_agents
+```
+
+
+```python
+import logging
+logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', 
+                    level=logging.CRITICAL, datefmt='%I:%M:%S')
+logger = logging.getLogger('training_info')
+
+# comment out the line below to enable logging
+logger.setLevel(logging.CRITICAL)
+```
+
+
+```python
+try:
+    while iteration < num_iterations:
+        collect_training_data()
+        train()
+        iteration += 1
+        if iteration % plot_interval == 0:
+            plot_history()
+            clear_output(wait=True)
+
+except KeyboardInterrupt:
+    clear_output(wait=True)
+    print('Interrupting training, plotting history...')
+    plot_history()
+    clear_output(wait=True)
+```
+
+    Interrupting training, plotting history...
     
 
-    ~\Miniconda3\envs\xai-it\lib\site-packages\gin\config.py in wrapper(*args, **kwargs)
-       1007 
-       1008       try:
-    -> 1009         return fn(*new_args, **new_kwargs)
-       1010       except Exception as e:  # pylint: disable=broad-except
-       1011         err_str = ''
+
+![png](output_26_1.png)
+
+
+
+```python
+games_data = pd.DataFrame.from_records(games)
+games_data.head()
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>iteration</th>
+      <th>game</th>
+      <th>p1_return</th>
+      <th>p2_return</th>
+      <th>outcome</th>
+      <th>final_step</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>0</td>
+      <td>0</td>
+      <td>-1000.0</td>
+      <td>0.0</td>
+      <td>illegal</td>
+      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>0</td>
+      <td>1</td>
+      <td>0.0</td>
+      <td>-1000.0</td>
+      <td>illegal</td>
+      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>0</td>
+      <td>2</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>p1_win</td>
+      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>0</td>
+      <td>3</td>
+      <td>-1000.0</td>
+      <td>0.0</td>
+      <td>illegal</td>
+      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>0</td>
+      <td>4</td>
+      <td>-1000.0</td>
+      <td>0.0</td>
+      <td>illegal</td>
+      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+loss_data = pd.DataFrame.from_records(loss_infos)
+loss_data.head()
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>iteration</th>
+      <th>p1_loss</th>
+      <th>p2_loss</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>0</td>
+      <td>10766328.0</td>
+      <td>2265665.75</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>0</td>
+      <td>10671850.0</td>
+      <td>2359345.50</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>0</td>
+      <td>10906064.0</td>
+      <td>2140547.00</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>0</td>
+      <td>10796404.0</td>
+      <td>2234231.50</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>0</td>
+      <td>10874322.0</td>
+      <td>2140421.75</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+games_data['p1_win'] = games_data.outcome == 'p1_win'
+games_data['p2_win'] = games_data.outcome == 'p2_win'
+games_data['illegal'] = games_data.outcome == 'illegal'
+grouped_games_data = games_data.groupby('iteration')
+grouped_games_data = grouped_games_data[['game', 'p1_win', 'p2_win', 'illegal']]
+game_totals =  grouped_games_data.max()['game'] + 1
+summed_games_data = grouped_games_data.sum()
+summed_games_data['p1_win_rate'] = summed_games_data.p1_win / game_totals
+summed_games_data['p2_win_rate'] = summed_games_data.p2_win / game_totals
+summed_games_data['illegal_rate'] = summed_games_data.illegal / game_totals
+summed_games_data['iteration'] = summed_games_data.index
+summed_games_data.head()
+```
+
+
+
+
+<div>
+<style scoped>
+    .dataframe tbody tr th:only-of-type {
+        vertical-align: middle;
+    }
+
+    .dataframe tbody tr th {
+        vertical-align: top;
+    }
+
+    .dataframe thead th {
+        text-align: right;
+    }
+</style>
+<table border="1" class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th></th>
+      <th>game</th>
+      <th>p1_win</th>
+      <th>p2_win</th>
+      <th>illegal</th>
+      <th>p1_win_rate</th>
+      <th>p2_win_rate</th>
+      <th>illegal_rate</th>
+      <th>iteration</th>
+    </tr>
+    <tr>
+      <th>iteration</th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <th>0</th>
+      <td>45</td>
+      <td>1.0</td>
+      <td>0.0</td>
+      <td>9.0</td>
+      <td>0.1</td>
+      <td>0.0</td>
+      <td>0.9</td>
+      <td>0</td>
+    </tr>
+    <tr>
+      <th>1</th>
+      <td>45</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>1</td>
+    </tr>
+    <tr>
+      <th>2</th>
+      <td>45</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>2</td>
+    </tr>
+    <tr>
+      <th>3</th>
+      <td>45</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>3</td>
+    </tr>
+    <tr>
+      <th>4</th>
+      <td>45</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>10.0</td>
+      <td>0.0</td>
+      <td>0.0</td>
+      <td>1.0</td>
+      <td>4</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+
+
+
+```python
+player_1._replay_buffer.get_next(num_steps = 2, sample_batch_size=3)
+```
+
+
+
+
+    (Trajectory(step_type=<tf.Tensor: shape=(3, 2), dtype=int32, numpy=
+     array([[0, 1],
+            [0, 0],
+            [1, 1]])>, observation=<tf.Tensor: shape=(3, 2, 3, 3), dtype=int32, numpy=
+     array([[[[0, 0, 0],
+              [0, 0, 0],
+              [0, 0, 0]],
+     
+             [[1, 0, 0],
+              [0, 2, 0],
+              [0, 0, 0]]],
+     
+     
+            [[[0, 0, 0],
+              [0, 0, 0],
+              [0, 0, 0]],
+     
+             [[0, 0, 0],
+              [0, 0, 0],
+              [0, 0, 0]]],
+     
+     
+            [[[0, 2, 0],
+              [0, 0, 0],
+              [0, 0, 0]],
+     
+             [[0, 2, 0],
+              [0, 0, 1],
+              [2, 0, 0]]]])>, action=<tf.Tensor: shape=(3, 2, 1), dtype=int32, numpy=
+     array([[[0],
+             [6]],
+     
+            [[5],
+             [5]],
+     
+            [[5],
+             [5]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(3, 2), dtype=int32, numpy=
+     array([[1, 1],
+            [1, 1],
+            [1, 2]])>, reward=<tf.Tensor: shape=(3, 2), dtype=float32, numpy=
+     array([[    0.,     0.],
+            [    0.,     0.],
+            [    0., -1000.]], dtype=float32)>, discount=<tf.Tensor: shape=(3, 2), dtype=float32, numpy=
+     array([[1., 1.],
+            [1., 1.],
+            [1., 1.]], dtype=float32)>),
+     BufferInfo(ids=<tf.Tensor: shape=(3, 2), dtype=int64, numpy=
+     array([[100, 101],
+            [356, 357],
+            [337, 338]], dtype=int64)>, probabilities=<tf.Tensor: shape=(3,), dtype=float32, numpy=array([0.00186916, 0.00186916, 0.00186916], dtype=float32)>))
+
+
+
+
+```python
+ts = tf_ttt_env.reset()
+player_1.reset()
+player_2.reset()
+print_tic_tac_toe(ts.observation.numpy())
+
+if bool(random.randint(0, 1)):
+    players = cycle([player_1, player_2])
+else:
+    players = cycle([player_2, player_1])
+    
+while not ts.is_last():
+    player = next(players)
+    player.act()
+    ts = tf_ttt_env.current_time_step()
+    print_tic_tac_toe(ts.observation.numpy())
+```
+
+    
+          |   |  
+        - + - + -
+          |   |  
+        - + - + -
+          |   |  
+        
+    
+        O |   |  
+        - + - + -
+          |   |  
+        - + - + -
+          |   |  
+        
+    
+        O |   |  
+        - + - + -
+          |   |  
+        - + - + -
+          |   |  
+        
     
 
-    ~\Miniconda3\envs\xai-it\lib\site-packages\tf_agents\agents\dqn\dqn_agent.py in __init__(self, time_step_spec, action_spec, q_network, optimizer, observation_and_action_constraint_splitter, epsilon_greedy, n_step_update, boltzmann_temperature, emit_log_probability, target_q_network, target_update_tau, target_update_period, td_errors_loss_fn, gamma, reward_scale_factor, gradient_clipping, debug_summaries, summarize_grads_and_vars, train_step_counter, name)
-        206     tf.Module.__init__(self, name=name)
-        207 
-    --> 208     self._check_action_spec(action_spec)
-        209 
-        210     if epsilon_greedy is not None and boltzmann_temperature is not None:
-    
 
-    ~\Miniconda3\envs\xai-it\lib\site-packages\tf_agents\agents\dqn\dqn_agent.py in _check_action_spec(self, action_spec)
-        264 
-        265     # TODO(oars): Get DQN working with more than one dim in the actions.
-    --> 266     if len(flat_action_spec) > 1 or flat_action_spec[0].shape.rank > 1:
-        267       raise ValueError('Only one dimensional actions are supported now.')
-        268 
-    
+```python
+ts = tf_ttt_env.reset()
+out, state = player_1._q_network(ts.observation, step_type=ts.step_type)
+out, tf.argmax(out, axis=-1)
+```
 
-    AttributeError: 'tuple' object has no attribute 'rank'
-      In call to configurable 'DqnAgent' (<function DqnAgent.__init__ at 0x00000240FC493E18>)
+
+
+
+    (<tf.Tensor: shape=(1, 9), dtype=float32, numpy=
+     array([[-6656374.5, -6647018. , -6655758. , -6662560.5, -6660408. ,
+             -6648186.5, -6658006.5, -6658451. , -6650753.5]], dtype=float32)>,
+     <tf.Tensor: shape=(1,), dtype=int64, numpy=array([1], dtype=int64)>)
+
+
+
+
+```python
+player_1.policy.action(
+    ts, 
+    policy_state=player_1.policy.get_initial_state(batch_size=tf_ttt_env.batch_size))
+```
+
+
+
+
+    PolicyStep(action=<tf.Tensor: shape=(1, 1), dtype=int32, numpy=array([[1]])>, state=[<tf.Tensor: shape=(1, 40), dtype=float32, numpy=
+    array([[-0.7615942,  0.7615942, -0.7615942,  0.7615942,  0.7615942,
+             0.7615942, -0.7615942,  0.7615942,  0.7615942, -0.7615942,
+             0.7615942,  0.7615942,  0.7615942,  0.7615942,  0.7615942,
+            -0.7615942,  0.7615942, -0.7615942, -0.7615942,  0.7615942,
+             0.7615942,  0.7615942,  0.7615942, -0.7615942, -0.7615942,
+            -0.7615942,  0.7615942,  0.7615942, -0.7615942,  0.7615942,
+             0.7615942, -0.7615942, -0.7615942,  0.7615942,  0.7615942,
+            -0.7615942,  0.7615942,  0.7615942,  0.7615942,  0.7615942]],
+          dtype=float32)>, <tf.Tensor: shape=(1, 40), dtype=float32, numpy=
+    array([[-1.,  1., -1.,  1.,  1.,  1., -1.,  1.,  1., -1.,  1.,  1.,  1.,
+             1.,  1., -1.,  1., -1., -1.,  1.,  1.,  1.,  1., -1., -1., -1.,
+             1.,  1., -1.,  1.,  1., -1., -1.,  1.,  1., -1.,  1.,  1.,  1.,
+             1.]], dtype=float32)>], info=())
+
 
 
 
