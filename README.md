@@ -57,7 +57,7 @@ print('Output Directory:', OUTPUTS_DIR)
      [PhysicalDevice(name='/physical_device:CPU:0', device_type='CPU')] 
     
     
-    Output Directory: ./outputs/15918988181947878
+    Output Directory: ./outputs/15919604828654150
     
 
 
@@ -126,7 +126,7 @@ class IMAgent(DqnAgent):
 #                             action_spec=self._action_spec,
 #                             name=f'{self._name}QRNN')
 
-        fc_layer_params = (100, 80, 20)
+        fc_layer_params = (50,)
 
         q_net = QNetwork(
             self._observation_spec,
@@ -232,7 +232,7 @@ from tic_tac_toe_environment import TicTacToeEnvironment
 from tf_agents.specs import BoundedArraySpec
 from tf_agents.trajectories.time_step import StepType
 
-REWARD_ILLEGAL_MOVE = np.asarray(-2, dtype=np.float32)
+REWARD_ILLEGAL_MOVE = np.asarray(-5, dtype=np.float32)
 
 class TicTacToeMultiAgentEnv(TicTacToeEnvironment):
     
@@ -340,7 +340,7 @@ while not ts.is_last():
         - + - + -
           |   |  
         
-    Player: 2 Action: 1 Reward: -2.0 Board:
+    Player: 2 Action: 1 Reward: -5.0 Board:
     
           | O | X
         - + - + -
@@ -384,24 +384,24 @@ player_2 = IMAgent(
     _________________________________________________________________
     Layer (type)                 Output Shape              Param #   
     =================================================================
-    EncodingNetwork (EncodingNet multiple                  10700     
+    EncodingNetwork (EncodingNet multiple                  500       
     _________________________________________________________________
-    dense_8 (Dense)              multiple                  189       
+    dense (Dense)                multiple                  459       
     =================================================================
-    Total params: 10,889
-    Trainable params: 10,889
+    Total params: 959
+    Trainable params: 959
     Non-trainable params: 0
     _________________________________________________________________
     Model: "QNetwork"
     _________________________________________________________________
     Layer (type)                 Output Shape              Param #   
     =================================================================
-    EncodingNetwork (EncodingNet multiple                  10700     
+    EncodingNetwork (EncodingNet multiple                  500       
     _________________________________________________________________
-    dense_10 (Dense)             multiple                  189       
+    dense_2 (Dense)              multiple                  459       
     =================================================================
-    Total params: 10,889
-    Trainable params: 10,889
+    Total params: 959
+    Trainable params: 959
     Non-trainable params: 0
     _________________________________________________________________
     
@@ -444,25 +444,17 @@ while not ts.is_last():
     
           | X |  
         - + - + -
-          |   | O
-        - + - + -
           |   |  
+        - + - + -
+        O |   |  
         
-    Player: Player1, Reward: 0.0
+    Player: Player1, Reward: -5.0
     
-          | X | X
-        - + - + -
-          |   | O
+          | X |  
         - + - + -
           |   |  
-        
-    Player: Player2, Reward: -2.0
-    
-          | X | X
         - + - + -
-          |   | O
-        - + - + -
-          |   |  
+        O |   |  
         
     
 
@@ -576,6 +568,7 @@ def training_episode(tf_ttt_env, player_1, player_2):
     ts = tf_ttt_env.reset()
     player_1.reset()
     player_2.reset()
+    time_steps = []
     if bool(random.randint(0, 1)):
         players = cycle([player_1, player_2])
     else:
@@ -584,11 +577,14 @@ def training_episode(tf_ttt_env, player_1, player_2):
         player = next(players)
         player.act(collect=True)
         ts = tf_ttt_env.current_time_step()
+        time_steps.append(ts)
+    return time_steps
 ```
 
 
 ```python
-training_episode(tf_ttt_env, player_1, player_2)
+for _ in range(10):
+    training_episode(tf_ttt_env, player_1, player_2)
 ```
 
 
@@ -599,7 +595,7 @@ player_1._replay_buffer.num_frames()
 
 
 
-    <tf.Tensor: shape=(), dtype=int64, numpy=2>
+    <tf.Tensor: shape=(), dtype=int64, numpy=25>
 
 
 
@@ -612,39 +608,39 @@ print(info)
 ```
 
     Trajectory(step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
-    array([[0, 1],
-           [0, 1]])>, observation=<tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
-    array([[[[0, 0, 0],
-             [0, 0, 0],
+    array([[1, 1],
+           [1, 1]])>, observation=<tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
+    array([[[[1, 0, 0],
+             [0, 0, 2],
              [0, 0, 0]],
     
-            [[1, 0, 2],
-             [0, 0, 0],
-             [0, 0, 0]]],
+            [[1, 0, 0],
+             [0, 2, 2],
+             [0, 1, 0]]],
     
     
-           [[[0, 0, 0],
-             [0, 0, 0],
+           [[[1, 0, 0],
+             [0, 0, 2],
              [0, 0, 0]],
     
-            [[1, 0, 2],
-             [0, 0, 0],
-             [0, 0, 0]]]])>, action=<tf.Tensor: shape=(2, 2, 1), dtype=int32, numpy=
-    array([[[0],
-            [2]],
+            [[1, 0, 0],
+             [0, 2, 2],
+             [0, 1, 0]]]])>, action=<tf.Tensor: shape=(2, 2, 1), dtype=int32, numpy=
+    array([[[7],
+            [3]],
     
-           [[0],
-            [2]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
-    array([[1, 2],
-           [1, 2]])>, reward=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
-    array([[ 0., -2.],
-           [ 0., -2.]], dtype=float32)>, discount=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
+           [[7],
+            [3]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
+    array([[1, 1],
+           [1, 1]])>, reward=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
+    array([[0., 0.],
+           [0., 0.]], dtype=float32)>, discount=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
     array([[1., 1.],
            [1., 1.]], dtype=float32)>)
     
     BufferInfo(ids=<tf.Tensor: shape=(2, 2), dtype=int64, numpy=
-    array([[0, 1],
-           [0, 1]], dtype=int64)>, probabilities=<tf.Tensor: shape=(2,), dtype=float32, numpy=array([1., 1.], dtype=float32)>)
+    array([[ 9, 10],
+           [14, 15]], dtype=int64)>, probabilities=<tf.Tensor: shape=(2,), dtype=float32, numpy=array([0.04166667, 0.04166667], dtype=float32)>)
     
 
 
@@ -655,7 +651,7 @@ player_1.episode_return(), player_2.episode_return()
 
 
 
-    (-2.0, 0.0)
+    (0.0, -5.0)
 
 
 
@@ -755,23 +751,27 @@ def plot_history():
                  x='iteration',
                  y='illegal_rate',
                  data=summed_games_data,
-                 label='Illegal Ending Ratio')
+                 label='Illegal Ending Rate')
     axs[1][0].set_title('Outcomes History')
-    axs[1][0].set_ylabel('Percentage')
+    axs[1][0].set_ylabel('ratio')
     
     plt.show()
 ```
 
+## Learning to Play Tic-Tac-Toe
+
+TODO: explain experience replay buffer
+
 
 ```python
-num_iterations = 10000
+num_iterations = 2000
 initial_collect_episodes = 100
-episodes_per_iteration = 25
+episodes_per_iteration = 10
 train_steps_per_iteration = 1
 training_batch_size = 512
 training_num_steps = 2
-replay_buffer_size = 50000
-learning_rate = 1e-3
+replay_buffer_size = 5 * episodes_per_iteration * 9
+learning_rate = 1e-2
 plot_interval = 50
 ```
 
@@ -812,6 +812,30 @@ for _ in range(initial_collect_episodes):
 print('Samples collected')
 ```
 
+    Model: "QNetwork"
+    _________________________________________________________________
+    Layer (type)                 Output Shape              Param #   
+    =================================================================
+    EncodingNetwork (EncodingNet multiple                  500       
+    _________________________________________________________________
+    dense_12 (Dense)             multiple                  459       
+    =================================================================
+    Total params: 959
+    Trainable params: 959
+    Non-trainable params: 0
+    _________________________________________________________________
+    Model: "QNetwork"
+    _________________________________________________________________
+    Layer (type)                 Output Shape              Param #   
+    =================================================================
+    EncodingNetwork (EncodingNet multiple                  500       
+    _________________________________________________________________
+    dense_14 (Dense)             multiple                  459       
+    =================================================================
+    Total params: 959
+    Trainable params: 959
+    Non-trainable params: 0
+    _________________________________________________________________
     Collecting Initial Training Sample...
     Samples collected
     
@@ -834,14 +858,10 @@ except KeyboardInterrupt:
     clear_output(wait=True)
     print('Interrupting training, plotting history...')
     plot_history()
-    clear_output(wait=True)
 ```
 
-    Interrupting training, plotting history...
-    
 
-
-![png](output_23_1.png)
+![png](output_24_0.png)
 
 
 
@@ -871,45 +891,61 @@ while not ts.is_last():
         - + - + -
           |   |  
         
-    Player: Player1, Action: 3, Reward: 0.0
-    
-          |   |  
-        - + - + -
-        X |   |  
-        - + - + -
-          |   |  
-        
-    Player: Player2, Action: 8, Reward: 0.0
-    
-          |   |  
-        - + - + -
-        X |   |  
-        - + - + -
-          |   | O
-        
     Player: Player1, Action: 5, Reward: 0.0
     
           |   |  
         - + - + -
-        X |   | X
+          |   | X
         - + - + -
-          |   | O
+          |   |  
         
-    Player: Player2, Action: 1, Reward: 0.0
+    Player: Player2, Action: 4, Reward: 0.0
     
-          | O |  
+          |   |  
         - + - + -
-        X |   | X
+          | O | X
         - + - + -
-          |   | O
+          |   |  
         
-    Player: Player1, Action: 4, Reward: 1.0
+    Player: Player1, Action: 3, Reward: 0.0
     
-          | O |  
+          |   |  
         - + - + -
-        X | X | X
+        X | O | X
         - + - + -
+          |   |  
+        
+    Player: Player2, Action: 2, Reward: 0.0
+    
           |   | O
+        - + - + -
+        X | O | X
+        - + - + -
+          |   |  
+        
+    Player: Player1, Action: 0, Reward: 0.0
+    
+        X |   | O
+        - + - + -
+        X | O | X
+        - + - + -
+          |   |  
+        
+    Player: Player2, Action: 7, Reward: 0.0
+    
+        X |   | O
+        - + - + -
+        X | O | X
+        - + - + -
+          | O |  
+        
+    Player: Player1, Action: 6, Reward: 1.0
+    
+        X |   | O
+        - + - + -
+        X | O | X
+        - + - + -
+        X | O |  
         
     
 
@@ -940,77 +976,77 @@ while not ts.is_last():
         - + - + -
           |   |  
         
-    Player: Player2, Action: 8, Reward: 0.0
+    Player: Player2, Action: 3, Reward: 0.0
     
           |   |  
         - + - + -
+        O |   |  
+        - + - + -
+          |   |  
+        
+    Player: Player1, Action: 8, Reward: 0.0
+    
           |   |  
         - + - + -
-          |   | O
+        O |   |  
+        - + - + -
+          |   | X
         
-    Player: Player1, Action: 3, Reward: 0.0
+    Player: Player2, Action: 4, Reward: 0.0
     
           |   |  
         - + - + -
-        X |   |  
-        - + - + -
-          |   | O
-        
-    Player: Player2, Action: 1, Reward: 0.0
-    
-          | O |  
-        - + - + -
-        X |   |  
-        - + - + -
-          |   | O
-        
-    Player: Player1, Action: 4, Reward: 0.0
-    
-          | O |  
-        - + - + -
-        X | X |  
-        - + - + -
-          |   | O
-        
-    Player: Player2, Action: 6, Reward: 0.0
-    
-          | O |  
-        - + - + -
-        X | X |  
-        - + - + -
-        O |   | O
-        
-    Player: Player1, Action: 7, Reward: 0.0
-    
-          | O |  
-        - + - + -
-        X | X |  
-        - + - + -
-        O | X | O
-        
-    Player: Player2, Action: 0, Reward: 0.0
-    
         O | O |  
         - + - + -
-        X | X |  
-        - + - + -
-        O | X | O
+          |   | X
         
     Player: Player1, Action: 2, Reward: 0.0
     
-        O | O | X
+          |   | X
         - + - + -
-        X | X |  
+        O | O |  
         - + - + -
-        O | X | O
+          |   | X
         
-    Player: Player2, Action: 6, Reward: -2.0
+    Player: Player2, Action: 0, Reward: 0.0
     
-        O | O | X
+        O |   | X
         - + - + -
-        X | X |  
+        O | O |  
         - + - + -
-        O | X | O
+          |   | X
+        
+    Player: Player1, Action: 6, Reward: 0.0
+    
+        O |   | X
+        - + - + -
+        O | O |  
+        - + - + -
+        X |   | X
+        
+    Player: Player2, Action: 7, Reward: 0.0
+    
+        O |   | X
+        - + - + -
+        O | O |  
+        - + - + -
+        X | O | X
+        
+    Player: Player1, Action: 1, Reward: 0.0
+    
+        O | X | X
+        - + - + -
+        O | O |  
+        - + - + -
+        X | O | X
+        
+    Player: Player2, Action: 5, Reward: 1.0
+    
+        O | X | X
+        - + - + -
+        O | O | O
+        - + - + -
+        X | O | X
         
     
 
@@ -1050,32 +1086,32 @@ loss_data.head()
     <tr>
       <th>0</th>
       <td>1</td>
-      <td>1.835568</td>
-      <td>0.327699</td>
+      <td>1.263636</td>
+      <td>14.433563</td>
     </tr>
     <tr>
       <th>1</th>
       <td>2</td>
-      <td>1.681885</td>
-      <td>0.255276</td>
+      <td>1.639822</td>
+      <td>12.280599</td>
     </tr>
     <tr>
       <th>2</th>
       <td>3</td>
-      <td>1.707292</td>
-      <td>0.309076</td>
+      <td>1.927452</td>
+      <td>11.299320</td>
     </tr>
     <tr>
       <th>3</th>
       <td>4</td>
-      <td>1.397255</td>
-      <td>0.413507</td>
+      <td>2.148207</td>
+      <td>10.372242</td>
     </tr>
     <tr>
       <th>4</th>
       <td>5</td>
-      <td>1.257239</td>
-      <td>0.305001</td>
+      <td>2.544619</td>
+      <td>9.379087</td>
     </tr>
   </tbody>
 </table>
@@ -1123,8 +1159,8 @@ games_data.head()
       <th>0</th>
       <td>1</td>
       <td>0</td>
-      <td>-2.0</td>
       <td>0.0</td>
+      <td>-5.0</td>
       <td>illegal</td>
       <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
     </tr>
@@ -1132,8 +1168,8 @@ games_data.head()
       <th>1</th>
       <td>1</td>
       <td>1</td>
-      <td>-2.0</td>
       <td>0.0</td>
+      <td>-5.0</td>
       <td>illegal</td>
       <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
     </tr>
@@ -1141,8 +1177,8 @@ games_data.head()
       <th>2</th>
       <td>1</td>
       <td>2</td>
-      <td>-2.0</td>
       <td>0.0</td>
+      <td>-5.0</td>
       <td>illegal</td>
       <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
     </tr>
@@ -1151,7 +1187,7 @@ games_data.head()
       <td>1</td>
       <td>3</td>
       <td>0.0</td>
-      <td>-2.0</td>
+      <td>-5.0</td>
       <td>illegal</td>
       <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
     </tr>
@@ -1159,8 +1195,8 @@ games_data.head()
       <th>4</th>
       <td>1</td>
       <td>4</td>
-      <td>-2.0</td>
       <td>0.0</td>
+      <td>-5.0</td>
       <td>illegal</td>
       <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
     </tr>
@@ -1231,10 +1267,10 @@ summed_games_data.head()
   <tbody>
     <tr>
       <th>1</th>
-      <td>300</td>
+      <td>1225</td>
       <td>0.0</td>
       <td>0.0</td>
-      <td>25.0</td>
+      <td>50.0</td>
       <td>0.00</td>
       <td>0.0</td>
       <td>1.00</td>
@@ -1242,10 +1278,10 @@ summed_games_data.head()
     </tr>
     <tr>
       <th>2</th>
-      <td>300</td>
+      <td>1225</td>
       <td>0.0</td>
       <td>0.0</td>
-      <td>25.0</td>
+      <td>50.0</td>
       <td>0.00</td>
       <td>0.0</td>
       <td>1.00</td>
@@ -1253,32 +1289,32 @@ summed_games_data.head()
     </tr>
     <tr>
       <th>3</th>
-      <td>300</td>
-      <td>7.0</td>
+      <td>1225</td>
       <td>0.0</td>
-      <td>18.0</td>
-      <td>0.28</td>
       <td>0.0</td>
-      <td>0.72</td>
+      <td>50.0</td>
+      <td>0.00</td>
+      <td>0.0</td>
+      <td>1.00</td>
       <td>3</td>
     </tr>
     <tr>
       <th>4</th>
-      <td>300</td>
-      <td>10.0</td>
+      <td>1225</td>
+      <td>1.0</td>
       <td>0.0</td>
-      <td>15.0</td>
-      <td>0.40</td>
+      <td>49.0</td>
+      <td>0.02</td>
       <td>0.0</td>
-      <td>0.60</td>
+      <td>0.98</td>
       <td>4</td>
     </tr>
     <tr>
       <th>5</th>
-      <td>300</td>
+      <td>1225</td>
       <td>0.0</td>
       <td>0.0</td>
-      <td>25.0</td>
+      <td>50.0</td>
       <td>0.00</td>
       <td>0.0</td>
       <td>1.00</td>
@@ -1289,6 +1325,11 @@ summed_games_data.head()
 </div>
 
 
+
+
+```python
+
+```
 
 
 ```python
