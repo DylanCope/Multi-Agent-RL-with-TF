@@ -2,19 +2,23 @@
 
 In this notebook we're going to be implementing reinforcement learning (RL) agents to play games against one another. Before reading this it is advised to be familiar with the [TF-Agents](https://github.com/tensorflow/agents) and Deep Q-Learning; [this tutorial](https://github.com/tensorflow/agents/blob/master/docs/tutorials/1_dqn_tutorial.ipynb) will bring you up to speed.
 
-## Introduction
+### Introduction
 
 TF-Agents is a framework for designing and experimenting with RL algorithms. It provides a collection of useful abstractions such as agents, replay buffers, and drivers. However, the code is quite rigidly tied to the single-agent view, which is explained by the *extrinsically motivated* agent in the diagram below.
 
 In this view, the environment provides observations and rewards to the agent. Under the assumption that there is only one agent this makes sense, however, when we have many agents in the same space we would like to have agent-specific observations and rewards. In order to rectify this we first need to think of agents as *intrinsically motivated*, which is to say that their rewards are a function of their observations and internal state. Secondly, the agent is only *partially observing* the environment, and the window into the environment is a function of the agent's total state. This total state can include "physical" properties of the agent such as position, but it also includes internal state. For example, an agent could have an internal `is_sleeping` parameter that multiplies their observations by zero to simulate a lack of light.
 
-## Implementing the IMAgent
+### Intrinsic Motivation
 
 In order to implement this with TF-Agents we are going to define an `IMAgent` (Intrinsically Motivated Agent) class by overriding the `DqnAgent` class. In the standard TF-Agents DQN pipeline the agent is trained by alternating between data collection and training updates to the Q-Network. Data collection is done with a special `collect_policy` which behaves differently to the main policy for the sake of managing the exploitation-exploration trade-off. Usually, the environment and the agent are separated. The environment generates a `TimeStep` containing the observation and reward information which is then passed to `policy.action`. This produces a `PolicyStep` that contains an action to step the environment. 
 
 <img src="./im_rl_agent.png" width="600px" display="block" margin-left="auto" margin-right="auto"/>
 
 This provides us with two approaches to our problem. We could make the enviroment aware of which agent it is producing the `TimeStep` for, or we could have each agent ingest an agent-independent time step that is then augmented internally. Here we argue that the latter is a more natural decomposition as it keeps the agent-specific code with the agent class. 
+
+### Running this Code
+
+The following is the list of imports that we will need for this tutorial. In order to run the code yourself you should clone [the repository](https://github.com/DylanCope/Multi-Agent-RL-with-TF) from GitHub and use [Anaconda](https://docs.conda.io/en/latest/) and the `env.yaml` file to [recreate the Python environment](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html#creating-an-environment-from-an-environment-yml-file).
 
 
 ```python
@@ -57,8 +61,12 @@ print('Output Directory:', OUTPUTS_DIR)
      [PhysicalDevice(name='/physical_device:CPU:0', device_type='CPU')] 
     
     
-    Output Directory: ./outputs/15919604828654150
+    Output Directory: ./outputs/15923139163402452
     
+
+### Defining the IMAgent Class
+
+In the next cell we will be defining the `IMAgent` class. This class is designed to be relatively general, but it could be improved by adding support for other reinforcement learning algorithms. The most natural way to do this would be by composition, rather than inheritance.
 
 
 ```python
@@ -218,7 +226,7 @@ class IMAgent(DqnAgent):
         return self.train(experience)
 ```
 
-## Tic-Tac-Toe Example
+## Tic-Tac-Toe 
 
 <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Tic_tac_toe.svg/1200px-Tic_tac_toe.svg.png" width="300px"/>
 
@@ -286,6 +294,8 @@ def print_tic_tac_toe(state):
     print(table_str)
 ```
 
+For a test of the environment we will step the environment with random actions:
+
 
 ```python
 tic_tac_toe_env = TicTacToeMultiAgentEnv()
@@ -350,6 +360,10 @@ while not ts.is_last():
         
     
 
+## Creating Player Objects
+
+Each of our players will be instances of `IMAgent` with a differing action and reward functions. The actions that the players make are dictionaries with position and value items, specifying what marking the player is trying to make on the board. Player 1 will get the default +1 for a win and -1 for a loss, but will will need to invert these rewards for Player 2.  
+
 
 ```python
 def ttt_action_fn(player, action):
@@ -413,8 +427,10 @@ ts = tf_ttt_env.reset()
 # arbitrary starting point to add variety
 random.seed(1)
 start_player_id = random.randint(1, 2)
-tf_ttt_env.step({'position': tf.convert_to_tensor([random.randint(0, 8)]), 
-                 'value': start_player_id})
+tf_ttt_env.step({
+    'position': tf.convert_to_tensor([random.randint(0, 8)]), 
+    'value': start_player_id
+})
 ts = tf_ttt_env.current_time_step()
 print('Random start board:')
 print_tic_tac_toe(ts.observation.numpy())
@@ -444,39 +460,49 @@ while not ts.is_last():
     
           | X |  
         - + - + -
-          |   |  
-        - + - + -
-        O |   |  
-        
-    Player: Player1, Reward: -5.0
-    
-          | X |  
+          |   | O
         - + - + -
           |   |  
+        
+    Player: Player1, Reward: 0.0
+    
+          | X | X
         - + - + -
-        O |   |  
+          |   | O
+        - + - + -
+          |   |  
+        
+    Player: Player2, Reward: -5.0
+    
+          | X | X
+        - + - + -
+          |   | O
+        - + - + -
+          |   |  
         
     
+
+As we can see, the agents properly interact with the environment, even if they are currently unable to perform well.
+
+In order to verify that the end condition rewards are all correct, we will engineer a winning state for each player and print out the appropriate information: 
 
 
 ```python
 ts = tf_ttt_env.reset()
 
-tf_ttt_env.step({'position': tf.convert_to_tensor([0]), 
-                 'value': 2})
-
-tf_ttt_env.step({'position': tf.convert_to_tensor([4]), 
-                 'value': 2})
-
-tf_ttt_env.step({'position': tf.convert_to_tensor([8]), 
-                 'value': 2})
+for pos in [0, 4, 8]:
+    tf_ttt_env.step({
+        'position': tf.convert_to_tensor([pos]), 
+        'value': 2
+    })
 
 ts = tf_ttt_env.current_time_step()
-print('Step type:', ts.step_type)
 print_tic_tac_toe(ts.observation.numpy())
+print('Is Final Step:', TimeStep.is_last(ts).numpy()[0])
+print('Player 1 Reward:', player_1._augment_time_step(ts).reward.numpy()[0])
+print('Player 2 Reward:', player_2._augment_time_step(ts).reward.numpy()[0])
 ```
 
-    Step type: tf.Tensor([2], shape=(1,), dtype=int32)
     
         O |   |  
         - + - + -
@@ -484,51 +510,28 @@ print_tic_tac_toe(ts.observation.numpy())
         - + - + -
           |   | O
         
+    Is Final Step: True
+    Player 1 Reward: -1.0
+    Player 2 Reward: 1.0
     
-
-
-```python
-player_1._augment_time_step(ts).reward
-```
-
-
-
-
-    <tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>
-
-
-
-
-```python
-player_2._augment_time_step(ts).reward
-```
-
-
-
-
-    <tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>
-
-
 
 
 ```python
 ts = tf_ttt_env.reset()
 
-tf_ttt_env.step({'position': tf.convert_to_tensor([0]), 
-                 'value': 1})
-
-tf_ttt_env.step({'position': tf.convert_to_tensor([4]), 
-                 'value': 1})
-
-tf_ttt_env.step({'position': tf.convert_to_tensor([8]), 
-                 'value': 1})
+for pos in [0, 4, 8]:
+    tf_ttt_env.step({
+        'position': tf.convert_to_tensor([pos]), 
+        'value': 1
+    })
 
 ts = tf_ttt_env.current_time_step()
-print('Step type:', ts.step_type)
 print_tic_tac_toe(ts.observation.numpy())
+print('Is Final Step:', TimeStep.is_last(ts).numpy()[0])
+print('Player 1 Reward:', player_1._augment_time_step(ts).reward.numpy()[0])
+print('Player 2 Reward:', player_2._augment_time_step(ts).reward.numpy()[0])
 ```
 
-    Step type: tf.Tensor([2], shape=(1,), dtype=int32)
     
         X |   |  
         - + - + -
@@ -536,31 +539,16 @@ print_tic_tac_toe(ts.observation.numpy())
         - + - + -
           |   | X
         
+    Is Final Step: True
+    Player 1 Reward: 1.0
+    Player 2 Reward: -1.0
     
 
+## Training the Agents
 
-```python
-player_1._augment_time_step(ts).reward
-```
+In order to train the agents we will do a iterations of 'episodes' and training steps. Each episode is a game of Tic Tac Toe where the agents use their 'collect policies' and store the trajectories that they experience in replay buffers. These collect policies are *epsilon greedy*: some percentage of the time (10\% in our case) the agents will perform a random action rather then following the best suggestion of the Q-networks. This is to balance the [exploration-exploitation trade-off](https://towardsdatascience.com/intuition-exploration-vs-exploitation-c645a1d37c7a). The agents are *Independent Q-learners* (IQL), meaning that they do not share parameters or experience. This means that each store their experience to their own buffers and separately use these datasets to update thier own weights. A side-effect of IQL is that the agents may learn strategies that the other has not, leading to chaotic learning dynamics where the loss scores of each agent fluctuate in tandem with one another throughout the training iterations.  
 
-
-
-
-    <tf.Tensor: shape=(1,), dtype=float32, numpy=array([1.], dtype=float32)>
-
-
-
-
-```python
-player_2._augment_time_step(ts).reward
-```
-
-
-
-
-    <tf.Tensor: shape=(1,), dtype=float32, numpy=array([-1.], dtype=float32)>
-
-
+The following cell defines the logic of a single training episode where we randomly pick one of the two players to go first. This is important because Tic Tac Toe is a [*solved game*](https://en.wikipedia.org/wiki/Solved_game): whoever plays first can force a win or a draw if they play optimally. Therefore, as the agents master the game we should expect the win rate to trend towards 50\% (when the $\epsilon$-greedy policy is not in use).
 
 
 ```python
@@ -581,79 +569,99 @@ def training_episode(tf_ttt_env, player_1, player_2):
     return time_steps
 ```
 
+### Inspecting the Trajectories
+
+First, lets verify that the trajectories are being written to the buffers:
+
 
 ```python
 for _ in range(10):
     training_episode(tf_ttt_env, player_1, player_2)
+
+print('Number of trajectories recorded by P1:',
+      player_1._replay_buffer.num_frames().numpy())
+print('Number of trajectories recorded by P2:',
+      player_2._replay_buffer.num_frames().numpy())
 ```
+
+    Number of trajectories recorded by P1: 27
+    Number of trajectories recorded by P2: 27
+    
+
+To better understand what is being stored in the buffers, lets visualising a sample from Player 1:
 
 
 ```python
-player_1._replay_buffer.num_frames()
+tf.random.set_seed(5)
+traj_batches, info = player_1._replay_buffer.get_next(
+    num_steps=2, sample_batch_size=3)
+
+def print_traj(traj):
+    steps = tf.concat(list(traj), axis=-1)
+    table_str = '''Trajectory:
+      Start             End
+    {} | {} | {}        {} | {} | {}
+    - + - + -        - + - + -
+    {} | {} | {}   ->   {} | {} | {}
+    - + - + -        - + - + -
+    {} | {} | {}        {} | {} | {}
+    '''.format(*tuple(steps.numpy().flatten()))
+    table_str = table_str.replace('0', ' ')
+    table_str = table_str.replace('1', 'X')
+    table_str = table_str.replace('2', 'O')
+    print(table_str)
+    
+for i in range(3):
+    action = traj_batches.action[i, 0, 0].numpy()
+    print('Action: Place \'X\' at', 
+          (action % 3, action // 3))
+    reward = traj_batches.reward[i, 0].numpy()
+    print('Reward:', reward)
+    print_traj(traj_batches.observation[i])
+    print()
 ```
 
-
-
-
-    <tf.Tensor: shape=(), dtype=int64, numpy=25>
-
-
-
-
-```python
-traj, info = player_1._replay_buffer.get_next(num_steps=2, sample_batch_size=2)
-print(traj)
-print()
-print(info)
-```
-
-    Trajectory(step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
-    array([[1, 1],
-           [1, 1]])>, observation=<tf.Tensor: shape=(2, 2, 3, 3), dtype=int32, numpy=
-    array([[[[1, 0, 0],
-             [0, 0, 2],
-             [0, 0, 0]],
+    Action: Place 'X' at (2, 0)
+    Reward: -5.0
+    Trajectory:
+          Start             End
+        O |   | X          |   |  
+        - + - + -        - + - + -
+        O |   |     ->     |   |  
+        - + - + -        - + - + -
+        X |   | O          |   |  
+        
     
-            [[1, 0, 0],
-             [0, 2, 2],
-             [0, 1, 0]]],
+    Action: Place 'X' at (0, 0)
+    Reward: 0.0
+    Trajectory:
+          Start             End
+          |   |          X |   |  
+        - + - + -        - + - + -
+          |   |     ->   O |   |  
+        - + - + -        - + - + -
+          |   |            |   |  
+        
     
+    Action: Place 'X' at (0, 2)
+    Reward: 0.0
+    Trajectory:
+          Start             End
+        O |   |          O |   |  
+        - + - + -        - + - + -
+          |   |     ->   O |   |  
+        - + - + -        - + - + -
+          |   |          X |   |  
+        
     
-           [[[1, 0, 0],
-             [0, 0, 2],
-             [0, 0, 0]],
-    
-            [[1, 0, 0],
-             [0, 2, 2],
-             [0, 1, 0]]]])>, action=<tf.Tensor: shape=(2, 2, 1), dtype=int32, numpy=
-    array([[[7],
-            [3]],
-    
-           [[7],
-            [3]]])>, policy_info=(), next_step_type=<tf.Tensor: shape=(2, 2), dtype=int32, numpy=
-    array([[1, 1],
-           [1, 1]])>, reward=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
-    array([[0., 0.],
-           [0., 0.]], dtype=float32)>, discount=<tf.Tensor: shape=(2, 2), dtype=float32, numpy=
-    array([[1., 1.],
-           [1., 1.]], dtype=float32)>)
-    
-    BufferInfo(ids=<tf.Tensor: shape=(2, 2), dtype=int64, numpy=
-    array([[ 9, 10],
-           [14, 15]], dtype=int64)>, probabilities=<tf.Tensor: shape=(2,), dtype=float32, numpy=array([0.04166667, 0.04166667], dtype=float32)>)
     
 
-
-```python
-player_1.episode_return(), player_2.episode_return()
-```
+The replay buffer `get_next` method allows us to choose the size of the batch and the number of time steps in each sample. Here we have three trajectories, each showing one transition. We can see that from the perspective of Player 1 the other agent's actions just appear in the next time step.
 
 
+## Training Loops and Plotting
 
-
-    (0.0, -5.0)
-
-
+In this next cell we define the core training loop and history plotting functions. For each episode we are recording data on the outcome, and player returns (sum of rewards over the episode) and other metadata. For each training step we are recording loss information. We are then taking all this information and creating plots that get created and updated at regular intervals.
 
 
 ```python
@@ -758,9 +766,9 @@ def plot_history():
     plt.show()
 ```
 
-## Learning to Play Tic-Tac-Toe
+## Final Training Set-up 
 
-TODO: explain experience replay buffer
+Here we are defining the parameters for the training run and building the agents. Most of these parameters are straight forward and don't require much consideration, but the `replay_buffer_size` is particular to the circumstances. Usually, in single-agent reinforcement learning, the environment is *stationary*, meaning that state-transitions and rewards that were observed in the past can be assumed to have stable distributions. However, in the IQL setting the expected return changes as the other agents in your environment change their strategies. This means that data stored in the replay buffer quickly becomes out-of-date, leading the training gradients of the loss function to not accurately reflect a step in the direction of improved performance at the present. As a result, if we have large replay buffers we see the loss function *increase*, rather than decrease, as we train. The TF-Agents `TFUniformReplayBuffer` implements a first in, first out (FIFO) mechanism, so if we restrict the maximum size to only store the trajectories for the past few iterations we will make sure that the environment appears approximately stationary from the perspective of the training step.
 
 
 ```python
@@ -770,7 +778,7 @@ episodes_per_iteration = 10
 train_steps_per_iteration = 1
 training_batch_size = 512
 training_num_steps = 2
-replay_buffer_size = 5 * episodes_per_iteration * 9
+replay_buffer_size = 3 * episodes_per_iteration * 9
 learning_rate = 1e-2
 plot_interval = 50
 ```
@@ -861,8 +869,14 @@ except KeyboardInterrupt:
 ```
 
 
-![png](output_24_0.png)
+![png](output_27_0.png)
 
+
+## Evaluating the Agents
+
+Now that we have training the agents to play the game, we can see them play some games.
+
+First, lets see what happens when player 1 goes first:
 
 
 ```python
@@ -877,8 +891,9 @@ while not ts.is_last():
     player = next(players)
     traj = player.act()
     ts = player._current_time_step()
+    act = traj.action[0][0]
     print(f'Player: {player.name}, '
-          f'Action: {traj.action[0][0]}, '
+          f'Action: {(act % 3, act // 3)}, '
           f'Reward: {ts.reward.numpy()[0]}')
     print_tic_tac_toe(ts.observation.numpy())
 ```
@@ -949,6 +964,8 @@ while not ts.is_last():
         
     
 
+Now, lets see what happens when player 2 goes first:
+
 
 ```python
 ts = tf_ttt_env.reset()
@@ -962,8 +979,9 @@ while not ts.is_last():
     player = next(players)
     traj = player.act()
     ts = player._current_time_step()
+    act = traj.action[0][0]
     print(f'Player: {player.name}, '
-          f'Action: {traj.action[0][0]}, '
+          f'Action: {(act % 3, act // 3)}, '
           f'Reward: {ts.reward.numpy()[0]}')
     print_tic_tac_toe(ts.observation.numpy())
 ```
@@ -1050,288 +1068,9 @@ while not ts.is_last():
         
     
 
-
-```python
-loss_data = pd.DataFrame.from_records(loss_infos)
-loss_data.head()
-```
+As we can see, the agents have (mostly) learned to avoid illegal moves, however, they are still missing obvious opportunties to win the game or block their opponent. Further training and/or changing the agent architectures would likely improve their play. 
 
 
+## Conclusions
 
-
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>iteration</th>
-      <th>p1_loss</th>
-      <th>p2_loss</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th>0</th>
-      <td>1</td>
-      <td>1.263636</td>
-      <td>14.433563</td>
-    </tr>
-    <tr>
-      <th>1</th>
-      <td>2</td>
-      <td>1.639822</td>
-      <td>12.280599</td>
-    </tr>
-    <tr>
-      <th>2</th>
-      <td>3</td>
-      <td>1.927452</td>
-      <td>11.299320</td>
-    </tr>
-    <tr>
-      <th>3</th>
-      <td>4</td>
-      <td>2.148207</td>
-      <td>10.372242</td>
-    </tr>
-    <tr>
-      <th>4</th>
-      <td>5</td>
-      <td>2.544619</td>
-      <td>9.379087</td>
-    </tr>
-  </tbody>
-</table>
-</div>
-
-
-
-
-```python
-games_data = pd.DataFrame.from_records(games)
-games_data.head()
-```
-
-
-
-
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>iteration</th>
-      <th>game</th>
-      <th>p1_return</th>
-      <th>p2_return</th>
-      <th>outcome</th>
-      <th>final_step</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th>0</th>
-      <td>1</td>
-      <td>0</td>
-      <td>0.0</td>
-      <td>-5.0</td>
-      <td>illegal</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-    <tr>
-      <th>1</th>
-      <td>1</td>
-      <td>1</td>
-      <td>0.0</td>
-      <td>-5.0</td>
-      <td>illegal</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-    <tr>
-      <th>2</th>
-      <td>1</td>
-      <td>2</td>
-      <td>0.0</td>
-      <td>-5.0</td>
-      <td>illegal</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-    <tr>
-      <th>3</th>
-      <td>1</td>
-      <td>3</td>
-      <td>0.0</td>
-      <td>-5.0</td>
-      <td>illegal</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-    <tr>
-      <th>4</th>
-      <td>1</td>
-      <td>4</td>
-      <td>0.0</td>
-      <td>-5.0</td>
-      <td>illegal</td>
-      <td>((tf.Tensor(2, shape=(), dtype=int32)), (tf.Te...</td>
-    </tr>
-  </tbody>
-</table>
-</div>
-
-
-
-
-```python
-games_data['p1_win'] = games_data.outcome == 'p1_win'
-games_data['p2_win'] = games_data.outcome == 'p2_win'
-games_data['illegal'] = games_data.outcome == 'illegal'
-grouped_games_data = games_data.groupby('iteration')
-grouped_games_data = grouped_games_data[['game', 'p1_win', 'p2_win', 'illegal']]
-game_totals =  grouped_games_data.max()['game'] + 1
-summed_games_data = grouped_games_data.sum()
-summed_games_data['p1_win_rate'] = summed_games_data.p1_win / game_totals
-summed_games_data['p2_win_rate'] = summed_games_data.p2_win / game_totals
-summed_games_data['illegal_rate'] = summed_games_data.illegal / game_totals
-summed_games_data['iteration'] = summed_games_data.index
-summed_games_data.head()
-```
-
-
-
-
-<div>
-<style scoped>
-    .dataframe tbody tr th:only-of-type {
-        vertical-align: middle;
-    }
-
-    .dataframe tbody tr th {
-        vertical-align: top;
-    }
-
-    .dataframe thead th {
-        text-align: right;
-    }
-</style>
-<table border="1" class="dataframe">
-  <thead>
-    <tr style="text-align: right;">
-      <th></th>
-      <th>game</th>
-      <th>p1_win</th>
-      <th>p2_win</th>
-      <th>illegal</th>
-      <th>p1_win_rate</th>
-      <th>p2_win_rate</th>
-      <th>illegal_rate</th>
-      <th>iteration</th>
-    </tr>
-    <tr>
-      <th>iteration</th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <th>1</th>
-      <td>1225</td>
-      <td>0.0</td>
-      <td>0.0</td>
-      <td>50.0</td>
-      <td>0.00</td>
-      <td>0.0</td>
-      <td>1.00</td>
-      <td>1</td>
-    </tr>
-    <tr>
-      <th>2</th>
-      <td>1225</td>
-      <td>0.0</td>
-      <td>0.0</td>
-      <td>50.0</td>
-      <td>0.00</td>
-      <td>0.0</td>
-      <td>1.00</td>
-      <td>2</td>
-    </tr>
-    <tr>
-      <th>3</th>
-      <td>1225</td>
-      <td>0.0</td>
-      <td>0.0</td>
-      <td>50.0</td>
-      <td>0.00</td>
-      <td>0.0</td>
-      <td>1.00</td>
-      <td>3</td>
-    </tr>
-    <tr>
-      <th>4</th>
-      <td>1225</td>
-      <td>1.0</td>
-      <td>0.0</td>
-      <td>49.0</td>
-      <td>0.02</td>
-      <td>0.0</td>
-      <td>0.98</td>
-      <td>4</td>
-    </tr>
-    <tr>
-      <th>5</th>
-      <td>1225</td>
-      <td>0.0</td>
-      <td>0.0</td>
-      <td>50.0</td>
-      <td>0.00</td>
-      <td>0.0</td>
-      <td>1.00</td>
-      <td>5</td>
-    </tr>
-  </tbody>
-</table>
-</div>
-
-
-
-
-```python
-
-```
-
-
-```python
-
-```
+In this tutorial we have implemented a class for intrinsically motivated DQN agents using TF-Agents, and we have instantiated multiple agents to act as independent Q-learners in a Tic Tac Toe environment. This framework is general a should be easily adaptable to different agent types, more agents, and different environments. 
